@@ -164,6 +164,12 @@ $emitidosCount = (int) ($k['emitidos_count'] ?? $k['emitidosCount'] ?? 0);
 $ingresosCount = (int) ($k['ingresos_count'] ?? $k['ingresosCount'] ?? 0);
 $cancelCount   = (int) ($k['cancelados_count'] ?? $k['cancelCount'] ?? 0);
 
+$borradoresCollection = $cfdiCollection
+    ->filter(fn ($row) => strtolower((string) ($row->estatus ?? '')) === 'borrador')
+    ->values();
+
+$borradoresCount = $borradoresCollection->count();
+
 if ($cfdiCollection->isNotEmpty()) {
     $emitidosCount = $emitidosCount > 0
         ? $emitidosCount
@@ -502,6 +508,108 @@ if ($cfdiCollection->isNotEmpty()) {
             </details>
         </section>
 
+        <section class="sat-clean-accordion" aria-label="Borradores">
+    <details class="sat-clean-accordion__item" open>
+        <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+            <div class="sat-clean-accordion__bar-left">
+                <span class="sat-clean-accordion__bar-title">Borradores</span>
+                <span class="sat-clean-accordion__bar-text">CFDI guardados pendientes de revisar, editar o timbrar.</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span class="sat-clean-status-badge is-warning">
+                    {{ $borradoresCount }} pendiente{{ $borradoresCount === 1 ? '' : 's' }}
+                </span>
+
+                <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                </span>
+            </div>
+        </summary>
+
+        <div class="sat-clean-accordion__content">
+            <div class="sat-clean-rfc-table-wrap sat-clean-rfc-table-wrap--minimal fx360-table-card" style="margin-top:12px;">
+                <table class="sat-clean-rfc-table sat-clean-rfc-table--minimal">
+                    <thead>
+                        <tr>
+                            <th>UUID temporal</th>
+                            <th>Fecha</th>
+                            <th>Receptor</th>
+                            <th class="text-end">Total</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        @forelse($borradoresCollection as $row)
+                            <tr>
+                                <td>
+                                    <strong>{{ $row->uuid ?: 'Borrador sin UUID' }}</strong>
+                                    <div class="sat-clean-rfc-inline-text">
+                                        {{ trim(($row->serie ? ($row->serie . '-') : '') . ($row->folio ?? ''), '- ') ?: 'Sin serie / folio' }}
+                                    </div>
+                                </td>
+
+                                <td>{{ optional($row->fecha)->format('Y-m-d H:i') ?: '—' }}</td>
+
+                                <td>
+                                    {{ optional($row->cliente)->razon_social
+                                        ?? optional($row->cliente)->nombre_comercial
+                                        ?? 'Receptor guardado' }}
+                                </td>
+
+                                <td class="text-end">
+                                    <strong>${{ number_format((float) ($row->total ?? 0), 2) }}</strong>
+                                </td>
+
+                                <td class="text-end">
+                                    <div class="sat-clean-icon-actions fx360-actions-icons">
+                                        @if(Route::has('cliente.facturacion.show'))
+                                            <a class="fx360-action-icon"
+                                            href="{{ route('cliente.facturacion.show', $row->id) }}"
+                                            data-tip="Ver"
+                                            aria-label="Ver borrador">
+                                                <svg viewBox="0 0 24 24" fill="none">
+                                                    <path d="M2.5 12C4.7 7.8 8 5.7 12 5.7C16 5.7 19.3 7.8 21.5 12C19.3 16.2 16 18.3 12 18.3C8 18.3 4.7 16.2 2.5 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                    <path d="M12 15.2C13.7673 15.2 15.2 13.7673 15.2 12C15.2 10.2327 13.7673 8.8 12 8.8C10.2327 8.8 8.8 10.2327 8.8 12C8.8 13.7673 10.2327 15.2 12 15.2Z" stroke="currentColor" stroke-width="2"/>
+                                                </svg>
+                                            </a>
+                                        @endif
+
+                                        @if(Route::has('cliente.facturacion.edit'))
+                                            <a class="fx360-action-icon"
+                                            href="{{ route('cliente.facturacion.edit', $row->id) }}"
+                                            data-tip="Editar"
+                                            aria-label="Editar borrador">
+                                                <svg viewBox="0 0 24 24" fill="none">
+                                                    <path d="M4 20H8.6L19.25 9.35C20.05 8.55 20.05 7.25 19.25 6.45L17.55 4.75C16.75 3.95 15.45 3.95 14.65 4.75L4 15.4V20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                    <path d="M13.5 5.9L18.1 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                </svg>
+                                            </a>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5">
+                                    <div class="sat-clean-empty-state sat-clean-empty-state--compact">
+                                        <div class="sat-clean-empty-state__title">No hay borradores pendientes</div>
+                                        <div class="sat-clean-empty-state__text">Guarda un CFDI como borrador para revisarlo antes de timbrar.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </details>
+</section>
+
         <section class="sat-clean-accordion" aria-label="Emitidos">
             <details class="sat-clean-accordion__item" open>
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
@@ -615,33 +723,68 @@ if ($cfdiCollection->isNotEmpty()) {
                                         </td>
 
                                         <td class="text-end">
-                                            <div class="sat-clean-icon-actions">
+                                            <div class="sat-clean-icon-actions fx360-actions-icons">
                                                 @if(Route::has('cliente.facturacion.show'))
-                                                    <a
-                                                        class="sat-clean-icon-btn"
-                                                        href="{{ route('cliente.facturacion.show', $row->id) }}"
-                                                        title="Ver"
-                                                        aria-label="Ver"
-                                                    >
-                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                                            <path d="M2.25 12C3.9 8.25 7.38 5.75 12 5.75C16.62 5.75 20.1 8.25 21.75 12C20.1 15.75 16.62 18.25 12 18.25C7.38 18.25 3.9 15.75 2.25 12Z" stroke="currentColor" stroke-width="1.8"/>
-                                                            <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.8"/>
+                                                    <a class="fx360-action-icon"
+                                                    href="{{ route('cliente.facturacion.show', $row->id) }}"
+                                                    data-tip="Ver"
+                                                    aria-label="Ver CFDI">
+                                                        <svg viewBox="0 0 24 24" fill="none">
+                                                            <path d="M2.5 12C4.7 7.8 8 5.7 12 5.7C16 5.7 19.3 7.8 21.5 12C19.3 16.2 16 18.3 12 18.3C8 18.3 4.7 16.2 2.5 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                            <path d="M12 15.2C13.7673 15.2 15.2 13.7673 15.2 12C15.2 10.2327 13.7673 8.8 12 8.8C10.2327 8.8 8.8 10.2327 8.8 12C8.8 13.7673 10.2327 15.2 12 15.2Z" stroke="currentColor" stroke-width="2"/>
                                                         </svg>
                                                     </a>
                                                 @endif
 
-                                                @if($st === 'borrador' && Route::has('cliente.facturacion.edit'))
-                                                    <a
-                                                        class="sat-clean-icon-btn"
-                                                        href="{{ route('cliente.facturacion.edit', $row->id) }}"
-                                                        title="Editar"
-                                                        aria-label="Editar"
-                                                    >
-                                                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                                            <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5V6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                                                            <path d="M13.5 8.5L16.5 11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                @if(Route::has('cliente.facturacion.edit'))
+                                                    <a class="fx360-action-icon"
+                                                    href="{{ route('cliente.facturacion.edit', $row->id) }}"
+                                                    data-tip="Editar"
+                                                    aria-label="Editar CFDI">
+                                                        <svg viewBox="0 0 24 24" fill="none">
+                                                            <path d="M4 20H8.6L19.25 9.35C20.05 8.55 20.05 7.25 19.25 6.45L17.55 4.75C16.75 3.95 15.45 3.95 14.65 4.75L4 15.4V20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                            <path d="M13.5 5.9L18.1 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                                         </svg>
                                                     </a>
+                                                @endif
+
+                                                @if(Route::has('cliente.facturacion.timbrar'))
+                                                    <form method="POST"
+                                                        action="{{ route('cliente.facturacion.timbrar', $row->id) }}"
+                                                        onsubmit="return confirm('¿Timbrar este CFDI? Por ahora se marcará como timbrado interno hasta conectar PAC/timbres.');">
+                                                        @csrf
+                                                        <button type="submit"
+                                                                class="fx360-action-icon fx360-action-icon--success"
+                                                                data-tip="Timbrar"
+                                                                aria-label="Timbrar CFDI">
+                                                            <svg viewBox="0 0 24 24" fill="none">
+                                                                <path d="M8 4H16V10L18.5 12.5V20H5.5V12.5L8 10V4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                                <path d="M8 10H16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                                <path d="M8.5 16H15.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                            </svg>
+                                                        </button>
+                                                    </form>
+                                                @endif
+
+                                                @if(Route::has('cliente.facturacion.destroy'))
+                                                    <form method="POST"
+                                                        action="{{ route('cliente.facturacion.destroy', $row->id) }}"
+                                                        onsubmit="return confirm('¿Eliminar este borrador? Esta acción no se puede deshacer.');">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit"
+                                                                class="fx360-action-icon fx360-action-icon--danger"
+                                                                data-tip="Eliminar"
+                                                                aria-label="Eliminar borrador">
+                                                            <svg viewBox="0 0 24 24" fill="none">
+                                                                <path d="M4 7H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                                <path d="M10 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                                <path d="M14 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                                <path d="M6.5 7L7.3 20H16.7L17.5 7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                                <path d="M9 7V4H15V7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                            </svg>
+                                                        </button>
+                                                    </form>
                                                 @endif
                                             </div>
                                         </td>

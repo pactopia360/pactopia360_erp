@@ -25,6 +25,7 @@
 @php
   use Illuminate\Support\Facades\Route;
   use Illuminate\Support\Carbon;
+  use Illuminate\Support\Facades\Crypt;
 
   $q             = request('q');
   $plan          = request('plan');
@@ -186,6 +187,8 @@
   $createStoreUrl = $try('admin.clientes.store')
                 ?: $try('admin.accounts.store')
                 ?: '';
+  
+  $facturotopiaUrlTemplate = $try('admin.clientes.facturotopia.save', ['key' => 'P360KEY']) ?: '';
 @endphp
 
 <div id="adminClientesPage"
@@ -195,226 +198,179 @@
   <div class="ac-shell">
 
     {{-- =========================
-        Topbar (sticky) vNext
-       ========================= --}}
-    <div class="ac-topbar">
-      <div class="ac-topbar-left">
-        <div class="ac-title">
-          <h1>Clientes</h1>
-          <div class="ac-sub">Administración de cuentas (SOT: <strong>admin.accounts</strong>)</div>
-        </div>
-
-        <form method="GET" id="quickSearchForm" class="ac-search" autocomplete="off">
-          <input class="ac-input"
-                 name="q"
-                 value="{{ $q }}"
-                 placeholder="Buscar RFC, razón social, correo o teléfono…"
-                 aria-label="Buscar">
-
-          <input type="hidden" name="plan" value="{{ $plan }}">
-          <input type="hidden" name="blocked" value="{{ $blocked }}">
-          <input type="hidden" name="billing_status" value="{{ $billingStatus }}">
-          <input type="hidden" name="sort" value="{{ $s }}">
-          <input type="hidden" name="dir" value="{{ $d }}">
-          <input type="hidden" name="per_page" value="{{ $pp }}">
-
-          <button class="ac-btn primary" type="submit">Buscar</button>
-          @if($q)
-            <a class="ac-btn ghost" href="{{ request()->fullUrlWithQuery(['q'=>'','page'=>null]) }}">Limpiar</a>
-          @endif
-        </form>
-      </div>
-
-      <div class="ac-topbar-right">
-        {{-- ✅ Crear (abre modal interno; NO depende de route) --}}
-        <button class="ac-btn primary" type="button" data-open-modal="#modalCreate">+ Crear cliente</button>
-
-        <form method="POST" action="{{ $syncLegacyUrl }}" onsubmit="return confirm('¿Sincronizar accounts → clientes (legacy)?')">
-          @csrf
-          <button class="ac-btn" type="submit">Sincronizar</button>
-        </form>
-
-        <button class="ac-btn" id="btnExportCsv" type="button">Exportar</button>
-
-        @if($stmtIdx)
-          <a class="ac-btn" href="{{ $stmtIdx }}">Estados de cuenta</a>
-        @endif
-      </div>
-
-      <div class="ac-meta-row">
-        <div class="left">
-          <span class="ac-pill">Periodo sugerido: <span class="mut">{{ $defaultPeriod }}</span></span>
-          <span class="ac-pill">Corte: <span class="mut">{{ now()->format('Y-m-d H:i') }}</span></span>
-          <span class="ac-pill">Orden: <span class="mut">{{ $s }} · {{ $d }}</span></span>
-          <span class="ac-pill">Pág: <span class="mut">{{ $pp }}/pág</span></span>
-          @if($billingStatus)
-            <span class="ac-pill">Billing: <span class="mut">{{ $billingStatus }}</span></span>
-          @endif
-        </div>
-        <div class="right">
-          <a class="ac-btn ghost" href="{{ route('admin.clientes.index') }}">Reset general</a>
-        </div>
-      </div>
-    </div>
-
-    {{-- =========================
-    KPIs (compactos + colapsables)
+    Header compacto · Clientes
    ========================= --}}
-        {{-- =========================
-       KPIs ultra-compactos (pills)
-       ========================= --}}
-    <div class="ac-kpi-bar" role="region" aria-label="KPIs">
-      <a class="ac-pill kpi" href="{{ route('admin.clientes.index') }}">
-        <strong>{{ $total ?? '—' }}</strong> <span class="mut">Total</span>
-      </a>
-
-      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}">
-        <strong>{{ $cntPro }}</strong> <span class="mut">PRO</span>
-      </a>
-
-      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}">
-        <strong>{{ $cntActive }}</strong> <span class="mut">Activas</span>
-      </a>
-
-      <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}">
-        <strong>{{ $cntBlocked }}</strong> <span class="mut">Bloqueados</span>
-      </a>
-
-      <details class="ac-kpi-more">
-        <summary class="ac-pill kpi more">
-          <strong>Más…</strong>
-          <span class="mut">FREE {{ $cntFree }} · Trial {{ $cntTrial }} · Overdue {{ $cntOverdue }}</span>
-        </summary>
-
-        <div class="ac-kpi-more__row">
-          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">
-            <strong>{{ $cntFree }}</strong> <span class="mut">FREE</span>
-          </a>
-          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">
-            <strong>{{ $cntTrial }}</strong> <span class="mut">Prueba</span>
-          </a>
-          <a class="ac-pill kpi" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">
-            <strong>{{ $cntOverdue }}</strong> <span class="mut">Overdue</span>
-          </a>
-          <span class="ac-pill kpi ghost">
-            <strong>{{ $verMail }}</strong> <span class="mut">Mail✔</span>
-          </span>
-          <span class="ac-pill kpi ghost">
-            <strong>{{ $verPhone }}</strong> <span class="mut">Tel✔</span>
-          </span>
-        </div>
-      </details>
-    </div>
-
-    {{-- =========================
-        Toolbar: segmented + filtros
-       ========================= --}}
-    <div class="ac-toolbar">
-      <div class="ac-toolbar-row">
-        <div class="ac-seg" aria-label="Bloqueo">
-          <a class="{{ $is('blocked','0')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'0','page'=>null]) }}">Operando</a>
-          <a class="{{ $is('blocked','1')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}">Bloqueados</a>
-        </div>
-
-        <div class="ac-seg" aria-label="Plan">
-          <a class="{{ ($plan===''||$plan===null)?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'','page'=>null]) }}">Todos</a>
-          <a class="{{ $is('plan','pro')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}">PRO</a>
-          <a class="{{ $is('plan','free')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">FREE</a>
-        </div>
-
-        <div class="ac-seg" aria-label="Billing">
-          <a class="{{ ($billingStatus===''||$billingStatus===null)?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'','page'=>null]) }}">Billing: Todos</a>
-          <a class="{{ $is('billing_status','active')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}">Activa</a>
-          <a class="{{ $is('billing_status','trial')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">Prueba</a>
-          <a class="{{ $is('billing_status','overdue')?'active':'' }}" href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">Overdue</a>
-        </div>
+<div class="ac360-head">
+  <div class="ac360-head-top">
+    <div class="ac360-titlebox">
+      <div class="ac360-titleline">
+        <h1>Clientes</h1>
+        <span class="ac360-count">{{ $total ?? '—' }}</span>
       </div>
-
-      <details class="ac-filters" id="filtersBox" {{ ($plan||$blocked||$billingStatus||$s!=='created_at'||$d!=='desc'||$pp!==25||$q) ? 'open' : '' }}>
-        <summary class="ac-filters-summary">
-          <span><strong>Filtros avanzados</strong></span>
-          <span class="ac-meta">
-            Orden: <strong>{{ $s }}</strong> · <strong>{{ $d }}</strong> · {{ $pp }}/pág
-            @if($billingStatus) · Billing: <strong>{{ $billingStatus }}</strong>@endif
-          </span>
-        </summary>
-
-        <form method="GET" id="filtersForm" class="ac-filters-form">
-          <div class="ac-filters-grid">
-            <div class="ac-field ac-field-wide">
-              <label>Buscar</label>
-              <input class="ac-input" name="q" value="{{ $q }}" placeholder="RFC, razón social, correo o teléfono">
-            </div>
-
-            <div class="ac-field">
-              <label>Plan</label>
-              <select name="plan" class="ac-select">
-                <option value="">Todos</option>
-                <option value="free" {{ (string)$plan==='free'?'selected':'' }}>Free</option>
-                <option value="pro"  {{ (string)$plan==='pro'?'selected':'' }}>Pro</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Bloqueo</label>
-              <select name="blocked" class="ac-select">
-                <option value="">Todos</option>
-                <option value="0" {{ request('blocked')==='0' ? 'selected':'' }}>No bloqueados</option>
-                <option value="1" {{ request('blocked')==='1' ? 'selected':'' }}>Bloqueados</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Billing status</label>
-              <select name="billing_status" class="ac-select">
-                <option value="">Todos</option>
-                @foreach($billingStatuses as $k=>$lbl)
-                  <option value="{{ $k }}" {{ (string)$billingStatus===(string)$k ? 'selected':'' }}>{{ $lbl }}</option>
-                @endforeach
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Orden</label>
-              <select name="sort" class="ac-select">
-                <option value="created_at" {{ $s==='created_at'?'selected':'' }}>Creado</option>
-                <option value="razon_social" {{ $s==='razon_social'?'selected':'' }}>Razón social</option>
-                <option value="plan" {{ $s==='plan'?'selected':'' }}>Plan</option>
-                <option value="billing_cycle" {{ $s==='billing_cycle'?'selected':'' }}>Ciclo</option>
-                <option value="billing_status" {{ $s==='billing_status'?'selected':'' }}>Billing status</option>
-                <option value="email_verified_at" {{ $s==='email_verified_at'?'selected':'' }}>Correo verificado</option>
-                <option value="phone_verified_at" {{ $s==='phone_verified_at'?'selected':'' }}>Tel verificado</option>
-                <option value="is_blocked" {{ $s==='is_blocked'?'selected':'' }}>Bloqueo</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Dirección</label>
-              <select name="dir" class="ac-select">
-                <option value="desc" {{ $d==='desc'?'selected':'' }}>Desc</option>
-                <option value="asc"  {{ $d==='asc'?'selected':'' }}>Asc</option>
-              </select>
-            </div>
-
-            <div class="ac-field">
-              <label>Por página</label>
-              <select name="per_page" class="ac-select">
-                @foreach([10,25,50,100] as $opt)
-                  <option value="{{ $opt }}" {{ $pp===$opt?'selected':'' }}>{{ $opt }}</option>
-                @endforeach
-              </select>
-            </div>
-
-            <div class="ac-field ac-field-wide" style="grid-column: span 12;">
-              <div class="ac-form-actions ac-actions-end">
-                <button class="ac-btn primary" type="submit">Aplicar</button>
-                <a class="ac-btn ghost" href="{{ route('admin.clientes.index') }}">Reset</a>
-              </div>
-            </div>
-          </div>
-        </form>
-      </details>
+      <div class="ac360-sub">Cuentas · admin.accounts</div>
     </div>
+
+    <form method="GET" id="quickSearchForm" class="ac360-search" autocomplete="off">
+      <span class="ac360-search-ico">⌕</span>
+
+      <input
+        name="q"
+        value="{{ $q }}"
+        placeholder="RFC, razón social, correo o teléfono..."
+        aria-label="Buscar">
+
+      <input type="hidden" name="plan" value="{{ $plan }}">
+      <input type="hidden" name="blocked" value="{{ $blocked }}">
+      <input type="hidden" name="billing_status" value="{{ $billingStatus }}">
+      <input type="hidden" name="sort" value="{{ $s }}">
+      <input type="hidden" name="dir" value="{{ $d }}">
+      <input type="hidden" name="per_page" value="{{ $pp }}">
+
+      <button class="ac360-icon-btn primary" type="submit" data-tip="Buscar" aria-label="Buscar">
+        🔎
+      </button>
+    </form>
+  </div>
+
+  <div class="ac360-actionbar">
+    <button class="ac360-square primary" type="button" data-open-modal="#modalCreate" data-tip="Crear cliente">
+      +
+    </button>
+
+    <form method="POST" action="{{ $syncLegacyUrl }}" onsubmit="return confirm('¿Sincronizar accounts → clientes (legacy)?')">
+      @csrf
+      <button class="ac360-square" type="submit" data-tip="Sincronizar">↻</button>
+    </form>
+
+    <button class="ac360-square" id="btnExportCsv" type="button" data-tip="Exportar">⇩</button>
+
+    @if($stmtIdx)
+      <a class="ac360-square" href="{{ $stmtIdx }}" data-tip="Estados de cuenta">◴</a>
+    @endif
+
+    <span class="ac360-sep"></span>
+
+    <a class="ac360-filter-pill {{ ($plan===''||$plan===null)?'active':'' }}"
+       href="{{ request()->fullUrlWithQuery(['plan'=>'','page'=>null]) }}"
+       data-tip="Todos los planes">
+      Plan
+      @if($plan)
+        <b>1</b>
+      @endif
+    </a>
+
+    <a class="ac360-filter-pill {{ ($billingStatus===''||$billingStatus===null)?'active':'' }}"
+       href="{{ request()->fullUrlWithQuery(['billing_status'=>'','page'=>null]) }}"
+       data-tip="Facturación">
+      Fact.
+      @if($billingStatus)
+        <b>1</b>
+      @endif
+    </a>
+
+    <a class="ac360-filter-pill {{ ($blocked===''||$blocked===null)?'active':'' }}"
+       href="{{ request()->fullUrlWithQuery(['blocked'=>'','page'=>null]) }}"
+       data-tip="Bloqueo">
+      Bloq.
+      @if($blocked !== null && $blocked !== '')
+        <b>1</b>
+      @endif
+    </a>
+
+    <button class="ac360-square" type="button" onclick="document.getElementById('filtersBox')?.toggleAttribute('open')" data-tip="Filtros">
+      ⛃
+    </button>
+
+    <a class="ac360-square danger" href="{{ route('admin.clientes.index') }}" data-tip="Limpiar filtros">
+      ⌫
+    </a>
+  </div>
+
+  <div class="ac360-meta">
+    <span data-tip="Corte">▣ {{ now()->format('d/m/Y H:i') }}</span>
+    <span data-tip="Orden">↕ {{ $s }} · {{ $d }}</span>
+    <span data-tip="Por página">▤ {{ $pp }}/pág</span>
+    <a href="{{ route('admin.clientes.index') }}" data-tip="Restablecer">↻</a>
+  </div>
+</div>
+
+{{-- =========================
+    KPIs compactos
+   ========================= --}}
+<div class="ac360-kpis">
+  <a href="{{ route('admin.clientes.index') }}"><strong>{{ $total ?? '—' }}</strong><span>Total</span></a>
+  <a href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}"><strong>{{ $cntPro }}</strong><span>PRO</span></a>
+  <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}"><strong>{{ $cntActive }}</strong><span>Activas</span></a>
+  <a href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}"><strong>{{ $cntBlocked }}</strong><span>Bloq.</span></a>
+  <details>
+    <summary><strong>Más</strong><span>FREE {{ $cntFree }} · Prueba {{ $cntTrial }} · Vencido {{ $cntOverdue }}</span></summary>
+    <div>
+      <a href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">FREE {{ $cntFree }}</a>
+      <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">Prueba {{ $cntTrial }}</a>
+      <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">Vencido {{ $cntOverdue }}</a>
+      <span>Mail {{ $verMail }}</span>
+      <span>Tel {{ $verPhone }}</span>
+    </div>
+  </details>
+</div>
+
+{{-- =========================
+    Filtros avanzados compactos
+   ========================= --}}
+<details class="ac360-filters" id="filtersBox" {{ ($plan||$blocked||$billingStatus||$s!=='created_at'||$d!=='desc'||$pp!==25||$q) ? 'open' : '' }}>
+  <summary>
+    <span>⛃ Filtros</span>
+    <small>{{ $s }} · {{ $d }} · {{ $pp }}/pág</small>
+  </summary>
+
+  <form method="GET" id="filtersForm" class="ac360-filter-form">
+    <input name="q" value="{{ $q }}" placeholder="Buscar...">
+
+    <select name="plan">
+      <option value="">Plan</option>
+      <option value="free" {{ (string)$plan==='free'?'selected':'' }}>Free</option>
+      <option value="pro"  {{ (string)$plan==='pro'?'selected':'' }}>Pro</option>
+    </select>
+
+    <select name="blocked">
+      <option value="">Bloqueo</option>
+      <option value="0" {{ request('blocked')==='0' ? 'selected':'' }}>Operando</option>
+      <option value="1" {{ request('blocked')==='1' ? 'selected':'' }}>Bloqueado</option>
+    </select>
+
+    <select name="billing_status">
+      <option value="">Facturación</option>
+      @foreach($billingStatuses as $k=>$lbl)
+        <option value="{{ $k }}" {{ (string)$billingStatus===(string)$k ? 'selected':'' }}>{{ $lbl }}</option>
+      @endforeach
+    </select>
+
+    <select name="sort">
+      <option value="created_at" {{ $s==='created_at'?'selected':'' }}>Creado</option>
+      <option value="razon_social" {{ $s==='razon_social'?'selected':'' }}>Razón social</option>
+      <option value="plan" {{ $s==='plan'?'selected':'' }}>Plan</option>
+      <option value="billing_cycle" {{ $s==='billing_cycle'?'selected':'' }}>Ciclo</option>
+      <option value="billing_status" {{ $s==='billing_status'?'selected':'' }}>Facturación</option>
+      <option value="email_verified_at" {{ $s==='email_verified_at'?'selected':'' }}>Correo</option>
+      <option value="phone_verified_at" {{ $s==='phone_verified_at'?'selected':'' }}>Teléfono</option>
+      <option value="is_blocked" {{ $s==='is_blocked'?'selected':'' }}>Bloqueo</option>
+    </select>
+
+    <select name="dir">
+      <option value="desc" {{ $d==='desc'?'selected':'' }}>Desc</option>
+      <option value="asc"  {{ $d==='asc'?'selected':'' }}>Asc</option>
+    </select>
+
+    <select name="per_page">
+      @foreach([10,25,50,100] as $opt)
+        <option value="{{ $opt }}" {{ $pp===$opt?'selected':'' }}>{{ $opt }}</option>
+      @endforeach
+    </select>
+
+    <button class="ac360-mini primary" type="submit" data-tip="Aplicar">✓</button>
+    <a class="ac360-mini" href="{{ route('admin.clientes.index') }}" data-tip="Reiniciar">↻</a>
+  </form>
+</details>
 
     {{-- Alertas --}}
     <div class="ac-alerts" role="region" aria-label="Mensajes del sistema">
@@ -605,6 +561,53 @@
 
           $nextPeriodEndLbl = $periodEnd ? $dateLabel($periodEnd) : '—';
 
+                    $metaRaw = (string)($r->meta ?? '');
+          $metaArr = [];
+
+          if ($metaRaw !== '') {
+            $decodedMeta = json_decode($metaRaw, true);
+            $metaArr = is_array($decodedMeta) ? $decodedMeta : [];
+          }
+
+          $ft = data_get($metaArr, 'facturotopia', []);
+
+          $ftStatus = (string) data_get($ft, 'status', 'pendiente');
+          $ftEnv = (string) data_get($ft, 'env', 'sandbox');
+          $ftCustomerId = (string) data_get($ft, 'customer_id', '');
+
+          $ftUser = (string) data_get($ft, 'auth.user', '');
+
+          $ftPasswordEncrypted = (string) data_get($ft, 'auth.password_encrypted', '');
+          $ftPasswordPlain = '';
+
+          if ($ftPasswordEncrypted !== '') {
+              try {
+                  $ftPasswordPlain = Crypt::decryptString($ftPasswordEncrypted);
+              } catch (\Throwable $e) {
+                  $ftPasswordPlain = '';
+              }
+          }
+
+          $ftPasswordSaved = $ftPasswordPlain !== '' ? '1' : '0';
+
+          $ftSandboxBaseUrl = (string) data_get($ft, 'sandbox.base_url', '');
+          $ftSandboxApiKey = (string) data_get($ft, 'sandbox.api_key', '');
+
+          $ftProductionBaseUrl = (string) data_get($ft, 'production.base_url', '');
+          $ftProductionApiKey = (string) data_get($ft, 'production.api_key', '');
+
+          $ftTimbresAsignados = (int) data_get($ft, 'timbres.asignados', 0);
+          $ftTimbresConsumidos = (int) data_get($ft, 'timbres.consumidos', 0);
+          $ftHitsAsignados = (int) data_get($ft, 'hits.asignados', 0);
+          $ftHitsConsumidos = (int) data_get($ft, 'hits.consumidos', 0);
+
+          $ftNotas = (string) data_get($ft, 'notas', '');
+          $ftUpdatedAt = (string) data_get($ft, 'updated_at', '');
+
+          $ftSaveUrl = $facturotopiaUrlTemplate !== ''
+          ? str_replace('P360KEY', $routeKey, $facturotopiaUrlTemplate)
+          : '';
+
           // payload para drawer/modals
           $clientPayload = [
             "id" => $idStr,
@@ -674,6 +677,26 @@
             "temp_pass" => $tempPass,
 
             "email_creds_url" => $emailCredsUrl ?: '',
+
+            "facturotopia_save_url" => $ftSaveUrl,
+            "facturotopia_status" => $ftStatus,
+            "facturotopia_env" => $ftEnv,
+            "facturotopia_customer_id" => $ftCustomerId,
+            "facturotopia_base_url_sandbox" => $ftSandboxBaseUrl,
+            "facturotopia_api_key_sandbox" => $ftSandboxApiKey,
+            "facturotopia_base_url_production" => $ftProductionBaseUrl,
+            "facturotopia_api_key_production" => $ftProductionApiKey,
+            "timbres_asignados" => $ftTimbresAsignados,
+            "timbres_consumidos" => $ftTimbresConsumidos,
+            "hits_asignados" => $ftHitsAsignados,
+            "hits_consumidos" => $ftHitsConsumidos,
+            "notas_facturotopia" => $ftNotas,
+            "facturotopia_updated_at" => $ftUpdatedAt,
+
+            "facturotopia_user" => $ftUser,
+            "facturotopia_password_saved" => $ftPasswordSaved,
+            "facturotopia_password" => $ftPasswordPlain,
+
             "access_url" => $accessUrl,
           ];
           $clientJson = e(json_encode($clientPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -773,51 +796,113 @@
           </div>
 
           {{-- =========================
-              Col 3: Acciones
-             ========================= --}}
-          <div class="cell actions" data-label="Acciones">
-            <button class="ac-btn small" type="button" data-open-drawer title="Abrir drawer">Ver</button>
+                Col 3: Acciones
+              ========================= --}}
+            <div class="cell actions ac-actions-compact" data-label="Acciones">
+              <button class="ac-icon-btn"
+                      type="button"
+                      data-open-drawer
+                      data-tip="Ver"
+                      title="Ver">
+                <span>👁</span>
+              </button>
 
-            {{-- Reenvíos rápidos --}}
-            @if($resendVerifyUrl)
-              <form method="POST" action="{{ $resendVerifyUrl }}" class="inline ac-actions-inline">
-                @csrf
-                <button class="ac-btn small" type="submit" title="Reenviar verificación">Reenviar</button>
-              </form>
-            @endif
+              <button class="ac-icon-btn primary"
+                    type="button"
+                    data-open-facturotopia
+                    data-facturotopia-url="{{ $ftSaveUrl }}"
+                    data-ft-status="{{ e($ftStatus) }}"
+                    data-ft-env="{{ e($ftEnv) }}"
+                    data-ft-customer="{{ e($ftCustomerId) }}"
+                    data-ft-user="{{ e($ftUser) }}"
+                    data-ft-password-saved="{{ e($ftPasswordSaved) }}"
+                    data-ft-password="{{ e($ftPasswordPlain) }}"
+                    data-ft-sandbox-url="{{ e($ftSandboxBaseUrl) }}"
+                    data-ft-sandbox-key="{{ e($ftSandboxApiKey) }}"
+                    data-ft-prod-url="{{ e($ftProductionBaseUrl) }}"
+                    data-ft-prod-key="{{ e($ftProductionApiKey) }}"
+                    data-ft-timbres-asignados="{{ e((string)$ftTimbresAsignados) }}"
+                    data-ft-timbres-consumidos="{{ e((string)$ftTimbresConsumidos) }}"
+                    data-ft-hits-asignados="{{ e((string)$ftHitsAsignados) }}"
+                    data-ft-hits-consumidos="{{ e((string)$ftHitsConsumidos) }}"
+                    data-ft-notas="{{ e($ftNotas) }}"
+                    data-tip="PAC"
+                    title="Facturotopia / Timbres">
+              <span>⚡</span>
+            </button>
 
-            @if($sendOtpUrl)
-              <form method="POST" action="{{ $sendOtpUrl }}" class="inline ac-actions-inline">
-                @csrf
-                <input type="hidden" name="channel" value="sms">
-                <button class="ac-btn small" type="submit" title="Enviar OTP">OTP</button>
-              </form>
-            @endif
+              @if($resendVerifyUrl)
+                <form method="POST" action="{{ $resendVerifyUrl }}" class="inline ac-actions-inline">
+                  @csrf
+                  <button class="ac-icon-btn"
+                          type="submit"
+                          data-tip="Reenviar"
+                          title="Reenviar verificación">
+                    <span>✈</span>
+                  </button>
+                </form>
+              @endif
 
-            {{-- menú ⋯ (editar/recips/creds/billing + core actions) --}}
-            <div class="ac-menu" data-menu>
-              <button class="ac-btn small" type="button" data-menu-toggle aria-label="Más acciones">⋯</button>
-              <div class="ac-menu-panel" role="menu">
-                <button type="button" class="ac-btn" data-drawer-action="edit">Editar</button>
-                <button type="button" class="ac-btn" data-drawer-action="recipients">Destinatarios</button>
-                <button type="button" class="ac-btn" data-drawer-action="creds">Credenciales</button>
-                <button type="button" class="ac-btn" data-drawer-action="billing">Billing</button>
+              @if($sendOtpUrl)
+                <form method="POST" action="{{ $sendOtpUrl }}" class="inline ac-actions-inline">
+                  @csrf
+                  <input type="hidden" name="channel" value="sms">
+                  <button class="ac-icon-btn"
+                          type="submit"
+                          data-tip="OTP"
+                          title="Enviar OTP">
+                    <span>↻</span>
+                  </button>
+                </form>
+              @endif
 
-                <button type="button" class="ac-btn" data-open-iframe="admin">Administrar (Billing)</button>
-                <button type="button" class="ac-btn" data-open-iframe="state">Estado (Hub)</button>
+              <div class="ac-menu" data-menu>
+                <button class="ac-icon-btn"
+                        type="button"
+                        data-menu-toggle
+                        data-tip="Más"
+                        aria-label="Más acciones">
+                  <span>⋯</span>
+                </button>
 
-                <div class="ac-menu-sep"></div>
-                <button type="button" role="menuitem" data-action="block" {{ $blockUrl ? '' : 'disabled' }}>Bloquear</button>
-                <button type="button" role="menuitem" data-action="unblock" {{ $unblockUrl ? '' : 'disabled' }}>Desbloquear</button>
-                <button type="button" role="menuitem" data-action="deactivate" {{ $deactivateUrl ? '' : 'disabled' }}>Dar de baja</button>
-                <button type="button" role="menuitem" data-action="reactivate" {{ $reactivateUrl ? '' : 'disabled' }}>Reactivar</button>
-                <div style="height:1px;background:rgba(15,23,42,.08);margin:6px 0"></div>
-                <button type="button" role="menuitem" class="danger" data-action="delete" {{ $deleteUrl ? '' : 'disabled' }}>Eliminar…</button>
+                <div class="ac-menu-panel" role="menu">
+                  <button type="button" class="ac-btn" data-drawer-action="edit">Editar</button>
+                  <button type="button" class="ac-btn" data-drawer-action="recipients">Destinatarios</button>
+                  <button type="button" class="ac-btn" data-drawer-action="creds">Credenciales</button>
+                  <button type="button" class="ac-btn" data-drawer-action="billing">Billing</button>
+                  <button type="button"
+                        class="ac-btn"
+                        data-open-facturotopia
+                        data-facturotopia-url="{{ $ftSaveUrl }}"
+                        data-ft-status="{{ e($ftStatus) }}"
+                        data-ft-env="{{ e($ftEnv) }}"
+                        data-ft-customer="{{ e($ftCustomerId) }}"
+                        data-ft-user="{{ e($ftUser) }}"
+                        data-ft-password-saved="{{ e($ftPasswordSaved) }}"
+                        data-ft-password="{{ e($ftPasswordPlain) }}"
+                        data-ft-sandbox-url="{{ e($ftSandboxBaseUrl) }}"
+                        data-ft-sandbox-key="{{ e($ftSandboxApiKey) }}"
+                        data-ft-prod-url="{{ e($ftProductionBaseUrl) }}"
+                        data-ft-prod-key="{{ e($ftProductionApiKey) }}"
+                        data-ft-timbres-asignados="{{ e((string)$ftTimbresAsignados) }}"
+                        data-ft-timbres-consumidos="{{ e((string)$ftTimbresConsumidos) }}"
+                        data-ft-hits-asignados="{{ e((string)$ftHitsAsignados) }}"
+                        data-ft-hits-consumidos="{{ e((string)$ftHitsConsumidos) }}"
+                        data-ft-notas="{{ e($ftNotas) }}">
+                  Facturotopia / Timbres
+                </button>
+
+                  <div class="ac-menu-sep"></div>
+
+                  <button type="button" role="menuitem" data-action="block" {{ $blockUrl ? '' : 'disabled' }}>Bloquear</button>
+                  <button type="button" role="menuitem" data-action="unblock" {{ $unblockUrl ? '' : 'disabled' }}>Desbloquear</button>
+                  <button type="button" role="menuitem" data-action="deactivate" {{ $deactivateUrl ? '' : 'disabled' }}>Dar de baja</button>
+                  <button type="button" role="menuitem" data-action="reactivate" {{ $reactivateUrl ? '' : 'disabled' }}>Reactivar</button>
+                  <button type="button" role="menuitem" class="danger" data-action="delete" {{ $deleteUrl ? '' : 'disabled' }}>Eliminar…</button>
+                </div>
               </div>
             </div>
           </div>
-
-        </div>
       @empty
         <div style="padding:16px">Sin resultados. Ajusta filtros o limpia búsqueda.</div>
       @endforelse
@@ -1559,6 +1644,133 @@
     </div>
   </div>
 
+    {{-- =========================
+      MODAL: Facturotopia / API / Timbres
+     ========================= --}}
+  <div class="ac-modal" id="modalFacturotopia" aria-hidden="true">
+    <div class="ac-modal-backdrop" data-close-modal></div>
+
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-label="Facturotopia API Timbres">
+      <div class="ac-modal-head">
+        <div>
+          <div class="ttl">Facturotopia / API / Timbres</div>
+          <div class="sub" id="mFt_sub">—</div>
+        </div>
+        <button class="x" type="button" data-close-modal aria-label="Cerrar">✕</button>
+      </div>
+
+      <form method="POST" id="mFt_form" action="" class="ac-form" novalidate data-ready="0">
+        @csrf
+
+        <div class="ac-grid ac-grid-12">
+          <div class="ac-field ac-col-4">
+            <label>Estatus</label>
+            <select class="ac-select" id="mFt_status" name="facturotopia_status">
+              <option value="pendiente">Pendiente</option>
+              <option value="en_proceso">En proceso</option>
+              <option value="activo">Activo</option>
+              <option value="suspendido">Suspendido</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
+
+          <input type="hidden" id="mFt_env" name="facturotopia_env" value="sandbox">
+
+          <div class="ac-field ac-col-4">
+            <label>Configuración PAC</label>
+            <input class="ac-input" value="Pruebas y Producción configurables" readonly>
+          </div>
+
+          <div class="ac-field ac-col-4">
+            <label>ID cliente Facturotopia</label>
+            <input class="ac-input" id="mFt_customer" name="facturotopia_customer_id" placeholder="ID externo">
+          </div>
+
+          {{-- =========================
+              Acceso PAC (Facturotopia)
+            ========================= --}}
+          <div class="ac-field ac-col-6">
+              <label>Usuario PAC</label>
+              <input
+                type="text"
+                class="ac-input"
+                id="mFt_user"
+                name="facturotopia_user"
+                placeholder="correo@empresa.com">
+            </div>
+
+            <div class="ac-field ac-col-6">
+              <label>Contraseña PAC</label>
+              <input
+                type="text"
+                class="ac-input"
+                id="mFt_pass"
+                name="facturotopia_password"
+                placeholder="Contraseña PAC">
+            </div>
+
+            <div class="ac-field ac-field-wide ac-col-6">
+              <label>Base URL pruebas</label>
+              <input class="ac-input" id="mFt_sandbox_url" name="facturotopia_base_url_sandbox" placeholder="https://...">
+            </div>
+
+            <div class="ac-field ac-field-wide ac-col-6">
+              <label>API key pruebas</label>
+              <input class="ac-input" id="mFt_sandbox_key" name="facturotopia_api_key_sandbox" placeholder="API key sandbox">
+            </div>
+
+            <div class="ac-field ac-field-wide ac-col-6">
+              <label>Base URL producción</label>
+              <input class="ac-input" id="mFt_prod_url" name="facturotopia_base_url_production" placeholder="https://...">
+            </div>
+
+            <div class="ac-field ac-field-wide ac-col-6">
+              <label>API key producción</label>
+              <input class="ac-input" id="mFt_prod_key" name="facturotopia_api_key_production" placeholder="API key producción">
+            </div>
+
+          <div class="ac-field ac-col-3">
+            <label>Timbres asignados</label>
+            <input class="ac-input" id="mFt_timbres_asignados" name="timbres_asignados" type="number" min="0" step="1">
+          </div>
+
+          <div class="ac-field ac-col-3">
+            <label>Timbres consumidos</label>
+            <input class="ac-input" id="mFt_timbres_consumidos" name="timbres_consumidos" type="number" min="0" step="1">
+          </div>
+
+          <div class="ac-field ac-col-3">
+            <label>Hits asignados</label>
+            <input class="ac-input" id="mFt_hits_asignados" name="hits_asignados" type="number" min="0" step="1">
+          </div>
+
+          <div class="ac-field ac-col-3">
+            <label>Hits consumidos</label>
+            <input class="ac-input" id="mFt_hits_consumidos" name="hits_consumidos" type="number" min="0" step="1">
+          </div>
+
+          <div class="ac-field ac-field-wide ac-col-12">
+            <label>Notas internas</label>
+            <textarea class="ac-textarea" id="mFt_notas" name="notas_facturotopia" rows="4" placeholder="Notas internas para soporte/admin"></textarea>
+          </div>
+
+          <div class="ac-field ac-col-12">
+            <div class="ac-note">
+              Admin captura las credenciales de pruebas y producción. El cliente podrá consultar estos datos y elegir el ambiente operativo desde Timbres / Hits.
+            </div>
+          </div>
+        </div>
+
+        <div class="ac-form-actions">
+          <button class="ac-btn" type="button" data-close-modal>Cancelar</button>
+          <button class="ac-btn primary" type="submit" form="mFt_form">
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   {{-- =====================================
   MODAL IFRAME: Submódulos (Administrar / Estado HUB)
   Mejorado: loader + inspección same-origin + fallback limpio
@@ -1635,4 +1847,120 @@
  @push('scripts')
 <script src="{{ asset('assets/admin/js/admin-clientes.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.js')) }}"></script>
 
-<script src="{{ asset('assets/admin/js/admin-clientes.vnext.overlays.v2.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.vnext.overlays.v2.js')) }}"></script> @endpush
+<script src="{{ asset('assets/admin/js/admin-clientes.vnext.overlays.v2.js') }}?v={{ @filemtime(public_path('assets/admin/js/admin-clientes.vnext.overlays.v2.js')) }}"></script> 
+
+<script>
+let p360FacturotopiaCurrentUrl = '';
+
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-open-facturotopia]');
+  if (!btn) return;
+
+  e.preventDefault();
+
+  const row = btn.closest('.ac-row');
+  if (!row) return;
+
+  let data = {};
+  try {
+    data = JSON.parse(row.getAttribute('data-client') || '{}');
+  } catch (err) {
+    data = {};
+  }
+
+  const modal = document.getElementById('modalFacturotopia');
+  const form = document.getElementById('mFt_form');
+  if (!modal || !form) return;
+
+  const setVal = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  };
+
+  const sub = document.getElementById('mFt_sub');
+  if (sub) sub.textContent = `${data.rfc || '—'} · ${data.razon_social || '—'}`;
+
+  p360FacturotopiaCurrentUrl =
+  btn.getAttribute('data-facturotopia-url') ||
+  data.facturotopia_save_url ||
+  '';
+
+  if (!p360FacturotopiaCurrentUrl && data.id) {
+    p360FacturotopiaCurrentUrl = `/admin/clientes/${encodeURIComponent(data.id)}/facturotopia`;
+  }
+
+  if (!p360FacturotopiaCurrentUrl && data.key) {
+    p360FacturotopiaCurrentUrl = `/admin/clientes/${encodeURIComponent(data.key)}/facturotopia`;
+  }
+
+  form.setAttribute('action', p360FacturotopiaCurrentUrl);
+  form.dataset.ready = p360FacturotopiaCurrentUrl ? '1' : '0';
+
+  const ft = {
+  status: btn.dataset.ftStatus || data.facturotopia_status || 'pendiente',
+  env: btn.dataset.ftEnv || data.facturotopia_env || 'sandbox',
+  customer: btn.dataset.ftCustomer || data.facturotopia_customer_id || '',
+  user: btn.dataset.ftUser || data.facturotopia_user || '',
+  passwordSaved: btn.dataset.ftPasswordSaved || data.facturotopia_password_saved || '0',
+  password: btn.dataset.ftPassword || data.facturotopia_password || '',
+  sandboxUrl: btn.dataset.ftSandboxUrl || data.facturotopia_base_url_sandbox || '',
+  sandboxKey: btn.dataset.ftSandboxKey || data.facturotopia_api_key_sandbox || '',
+  prodUrl: btn.dataset.ftProdUrl || data.facturotopia_base_url_production || '',
+  prodKey: btn.dataset.ftProdKey || data.facturotopia_api_key_production || '',
+  timbresAsignados: btn.dataset.ftTimbresAsignados || data.timbres_asignados || 0,
+  timbresConsumidos: btn.dataset.ftTimbresConsumidos || data.timbres_consumidos || 0,
+  hitsAsignados: btn.dataset.ftHitsAsignados || data.hits_asignados || 0,
+  hitsConsumidos: btn.dataset.ftHitsConsumidos || data.hits_consumidos || 0,
+  notas: btn.dataset.ftNotas || data.notas_facturotopia || '',
+};
+
+setVal('mFt_status', ft.status);
+setVal('mFt_env', ft.env);
+setVal('mFt_customer', ft.customer);
+setVal('mFt_user', ft.user);
+setVal('mFt_pass', ft.password);
+
+const passInput = document.getElementById('mFt_pass');
+if (passInput) {
+  passInput.type = 'text';
+  passInput.placeholder = ft.passwordSaved === '1'
+    ? 'Contraseña PAC guardada'
+    : 'Sin contraseña guardada';
+}
+
+setVal('mFt_sandbox_url', ft.sandboxUrl);
+setVal('mFt_sandbox_key', ft.sandboxKey);
+setVal('mFt_prod_url', ft.prodUrl);
+setVal('mFt_prod_key', ft.prodKey);
+
+setVal('mFt_timbres_asignados', ft.timbresAsignados);
+setVal('mFt_timbres_consumidos', ft.timbresConsumidos);
+setVal('mFt_hits_asignados', ft.hitsAsignados);
+setVal('mFt_hits_consumidos', ft.hitsConsumidos);
+setVal('mFt_notas', ft.notas);
+
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+});
+
+document.getElementById('mFt_form')?.addEventListener('submit', function(e){
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!p360FacturotopiaCurrentUrl) {
+    alert('No se detectó la URL de guardado PAC para este cliente.');
+    return false;
+  }
+
+  if (!confirm('¿Guardar datos Facturotopia/API/Timbres?')) {
+    return false;
+  }
+
+  this.setAttribute('action', p360FacturotopiaCurrentUrl);
+  this.setAttribute('method', 'POST');
+
+  HTMLFormElement.prototype.submit.call(this);
+});
+</script>
+
+@endpush

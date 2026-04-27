@@ -592,6 +592,26 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/nuevo', [ClienteFacturacion::class, 'create'])->name('create');
             Route::post('/', [ClienteFacturacion::class, 'store'])->name('store');
 
+            Route::get('/{cfdi}', [ClienteFacturacion::class, 'show'])
+                ->whereNumber('cfdi')
+                ->name('show');
+            
+            Route::get('/{cfdi}/editar', [ClienteFacturacion::class, 'edit'])
+                ->whereNumber('cfdi')
+                ->name('edit');
+
+            Route::put('/{cfdi}/editar', [ClienteFacturacion::class, 'actualizar'])
+                ->whereNumber('cfdi')
+                ->name('actualizar');
+                
+            Route::delete('/{cfdi}', [ClienteFacturacion::class, 'destroy'])
+                ->whereNumber('cfdi')
+                ->name('destroy');
+
+            Route::post('/{cfdi}/timbrar', [ClienteFacturacion::class, 'timbrar'])
+                ->whereNumber('cfdi')
+                ->name('timbrar');
+
             Route::get('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorShow'])
                 ->whereNumber('receptor')
                 ->name('receptores.show');

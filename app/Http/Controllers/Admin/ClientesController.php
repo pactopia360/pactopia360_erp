@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Crypt;
 
 class ClientesController extends \App\Http\Controllers\Controller
 {
@@ -726,6 +727,95 @@ class ClientesController extends \App\Http\Controllers\Controller
 
         return null;
     }
+
+    public function facturotopiaSave(string $key, Request $request): RedirectResponse
+{
+    $acc = $this->requireAccount($key, ['id', $this->colRfcAdmin(), 'razon_social', 'meta']);
+
+    if (! $this->hasCol($this->adminConn, 'accounts', 'meta')) {
+        return back()->with('error', 'La tabla accounts no tiene columna meta para guardar Facturotopia/API.');
+    }
+
+    $data = $request->validate([
+        'facturotopia_status' => 'nullable|string|max:30',
+        'facturotopia_env' => 'nullable|string|in:sandbox,production',
+        'facturotopia_customer_id' => 'nullable|string|max:120',
+
+        'facturotopia_user' => 'nullable|string|max:191',
+        'facturotopia_password' => 'nullable|string|max:500',
+
+        'facturotopia_base_url_sandbox' => 'nullable|string|max:255',
+        'facturotopia_api_key_sandbox' => 'nullable|string|max:500',
+
+        'facturotopia_base_url_production' => 'nullable|string|max:255',
+        'facturotopia_api_key_production' => 'nullable|string|max:500',
+
+        'timbres_asignados' => 'nullable|integer|min:0|max:999999999',
+        'timbres_consumidos' => 'nullable|integer|min:0|max:999999999',
+        'hits_asignados' => 'nullable|integer|min:0|max:999999999',
+        'hits_consumidos' => 'nullable|integer|min:0|max:999999999',
+        'notas_facturotopia' => 'nullable|string|max:3000',
+    ]);
+
+    $meta = $this->decodeMeta($acc->meta ?? null);
+
+    $keep = function (string $key, mixed $newValue) use (&$meta) {
+        if ($newValue === null) {
+            return;
+        }
+
+        if (is_string($newValue) && trim($newValue) === '') {
+            return;
+        }
+
+        data_set($meta, $key, is_string($newValue) ? trim($newValue) : $newValue);
+    };
+
+    $keep('facturotopia.status', $data['facturotopia_status'] ?? 'pendiente');
+    $keep('facturotopia.env', $data['facturotopia_env'] ?? 'sandbox');
+    $keep('facturotopia.customer_id', $data['facturotopia_customer_id'] ?? null);
+
+    $keep('facturotopia.auth.user', $data['facturotopia_user'] ?? null);
+
+    if (!empty($data['facturotopia_password'])) {
+        data_set($meta, 'facturotopia.auth.password_encrypted', Crypt::encryptString((string) $data['facturotopia_password']));
+    }
+
+    $keep('facturotopia.sandbox.base_url', $data['facturotopia_base_url_sandbox'] ?? null);
+    $keep('facturotopia.sandbox.api_key', $data['facturotopia_api_key_sandbox'] ?? null);
+
+    $keep('facturotopia.production.base_url', $data['facturotopia_base_url_production'] ?? null);
+    $keep('facturotopia.production.api_key', $data['facturotopia_api_key_production'] ?? null);
+
+    data_set($meta, 'facturotopia.timbres.asignados', (int) ($data['timbres_asignados'] ?? data_get($meta, 'facturotopia.timbres.asignados', 0)));
+    data_set($meta, 'facturotopia.timbres.consumidos', (int) ($data['timbres_consumidos'] ?? data_get($meta, 'facturotopia.timbres.consumidos', 0)));
+    data_set($meta, 'facturotopia.hits.asignados', (int) ($data['hits_asignados'] ?? data_get($meta, 'facturotopia.hits.asignados', 0)));
+    data_set($meta, 'facturotopia.hits.consumidos', (int) ($data['hits_consumidos'] ?? data_get($meta, 'facturotopia.hits.consumidos', 0)));
+
+    if (array_key_exists('notas_facturotopia', $data)) {
+        data_set($meta, 'facturotopia.notas', (string) ($data['notas_facturotopia'] ?? ''));
+    }
+
+    data_set($meta, 'facturotopia.updated_at', now()->toDateTimeString());
+    data_set($meta, 'facturotopia.updated_by', auth('admin')->id());
+
+    $updated = DB::connection($this->adminConn)
+        ->table('accounts')
+        ->where('id', (int) $acc->id)
+        ->update([
+            'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated_at' => now(),
+        ]);
+
+    Cache::forget('client.account.summary.' . $acc->id);
+    Cache::forget('client.account.plan.' . $acc->id);
+    Cache::forget('client.account.home.' . $acc->id);
+
+    return back()->with('ok', $updated >= 0
+        ? 'Datos Facturotopia/API/Timbres guardados correctamente.'
+        : 'No se pudo confirmar el guardado de Facturotopia/API.'
+    );
+}
 
     // ======================= GUARDAR (accounts) =======================
     public function save(string $key, Request $request): RedirectResponse

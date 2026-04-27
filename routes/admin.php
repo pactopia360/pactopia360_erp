@@ -476,6 +476,17 @@ Route::middleware([
         Route::get('clientes', [ClientesController::class, 'index'])
             ->middleware(perm_mw('clientes.ver'))
             ->name('clientes.index');
+        
+        if (method_exists(ClientesController::class, 'facturotopiaSave')) {
+            $facturotopia = Route::post('clientes/{key}/facturotopia', [ClientesController::class, 'facturotopiaSave'])
+                ->where('key', '[A-Za-z0-9\-]+')
+                ->middleware([$thrAdminPosts, ...perm_mw('clientes.editar')])
+                ->name('clientes.facturotopia.save');
+
+            if ($isLocal) {
+                $facturotopia->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
+            }
+        }
 
         if (method_exists(ClientesController::class, 'show')) {
             Route::get('clientes/{key}', [ClientesController::class, 'show'])

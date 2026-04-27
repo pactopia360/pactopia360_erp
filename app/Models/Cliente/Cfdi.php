@@ -8,34 +8,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Modelo CFDI (módulo Cliente)
- *
- * Representa los comprobantes fiscales emitidos por una cuenta cliente.
- * Está vinculado a la base de datos `mysql_clientes`.
  */
 class Cfdi extends Model
 {
-    /**
-     * Conexión a la BD de clientes.
-     *
-     * @var string
-     */
     protected $connection = 'mysql_clientes';
 
-    /**
-     * Tabla asociada.
-     *
-     * @var string
-     */
     protected $table = 'cfdis';
 
-    /**
-     * Campos asignables masivamente.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'cliente_id',
+        'cuenta_id',
         'receptor_id',
+        'emisor_credential_id',
         'serie',
         'folio',
         'subtotal',
@@ -49,41 +33,27 @@ class Cfdi extends Model
         'metodo_pago',
     ];
 
-    /**
-     * Casts de atributos.
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
-        'fecha'    => 'datetime',
+        'fecha' => 'datetime',
         'subtotal' => 'float',
-        'iva'      => 'float',
-        'total'    => 'float',
+        'iva' => 'float',
+        'total' => 'float',
     ];
 
-    /* ========================================
-     | Relaciones
-     * ======================================== */
-
     /**
-     * Emisor / Cliente dueño del CFDI.
+     * Compatibilidad con la vista actual:
+     * realmente el CFDI se relaciona con receptores, no con App\Models\Cliente\Cliente.
      */
     public function cliente(): BelongsTo
     {
-        return $this->belongsTo(Cliente::class, 'cliente_id', 'id');
+        return $this->belongsTo(Receptor::class, 'receptor_id', 'id');
     }
 
-    /**
-     * Receptor del CFDI.
-     */
     public function receptor(): BelongsTo
     {
         return $this->belongsTo(Receptor::class, 'receptor_id', 'id');
     }
 
-    /**
-     * Conceptos del CFDI.
-     */
     public function conceptos(): HasMany
     {
         return $this->hasMany(CfdiConcepto::class, 'cfdi_id', 'id');

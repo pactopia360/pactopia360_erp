@@ -568,3 +568,199 @@ html[data-theme="dark"] .fx360-note{
     min-height:40px !important;
   }
 }
+
+.fx360-actions-icons{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:8px;
+    min-width:168px;
+}
+
+.fx360-actions-icons form{
+    display:inline-flex;
+    margin:0;
+}
+
+.fx360-action-icon{
+    position:relative;
+    width:36px;
+    height:36px;
+    border:1px solid #d8e7ff;
+    border-radius:13px;
+    background:linear-gradient(180deg,#ffffff 0%,#f7fbff 100%);
+    color:#2458cf;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    text-decoration:none;
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+    line-height:1;
+    box-shadow:0 6px 14px rgba(37,88,207,.06);
+}
+
+.fx360-action-icon svg{
+    width:17px;
+    height:17px;
+    display:block;
+}
+
+.fx360-action-icon:hover{
+    transform:translateY(-1px);
+    border-color:#9fc1ff;
+    background:#eef5ff;
+    box-shadow:0 10px 20px rgba(37,88,207,.14);
+}
+
+.fx360-action-icon--success{
+    color:#0f8a4b;
+    border-color:#c7f0db;
+    background:linear-gradient(180deg,#ffffff 0%,#f2fff8 100%);
+}
+
+.fx360-action-icon--success:hover{
+    border-color:#8ee6b5;
+    background:#ecfdf5;
+    box-shadow:0 10px 20px rgba(15,138,75,.12);
+}
+
+.fx360-action-icon--danger{
+    color:#dc2626;
+    border-color:#ffd6d6;
+    background:linear-gradient(180deg,#ffffff 0%,#fff6f6 100%);
+}
+
+.fx360-action-icon--danger:hover{
+    border-color:#ffb4b4;
+    background:#fff1f1;
+    box-shadow:0 10px 20px rgba(220,38,38,.12);
+}
+
+.fx360-action-icon::after{
+    content:attr(data-tip);
+    position:absolute;
+    left:50%;
+    bottom:calc(100% + 10px);
+    transform:translate(-50%, 4px);
+    min-width:max-content;
+    padding:6px 9px;
+    border-radius:999px;
+    background:#10233f;
+    color:#ffffff;
+    font-size:10px;
+    font-weight:900;
+    line-height:1;
+    opacity:0;
+    pointer-events:none;
+    transition:.16s ease;
+    z-index:80;
+    box-shadow:0 10px 20px rgba(16,35,63,.20);
+}
+
+.fx360-action-icon::before{
+    content:"";
+    position:absolute;
+    left:50%;
+    bottom:calc(100% + 4px);
+    transform:translate(-50%, 4px);
+    border:5px solid transparent;
+    border-top-color:#10233f;
+    opacity:0;
+    pointer-events:none;
+    transition:.16s ease;
+    z-index:81;
+}
+
+.fx360-action-icon:hover::after,
+.fx360-action-icon:hover::before{
+    opacity:1;
+    transform:translate(-50%, 0);
+}
+
+/* =========================================================
+   FACTURACION 360 - AJUSTE FINO SIN ROMPER BASE ACTUAL
+========================================================= */
+
+.page-facturacion-360 .sat-clean-container{
+  max-width:100%;
+}
+
+.page-facturacion-360 .sat-clean-accordion{
+  margin-top:10px;
+}
+
+.page-facturacion-360 .sat-clean-accordion__item{
+  border-radius:18px !important;
+  border:1px solid #e4edf8 !important;
+  box-shadow:0 10px 24px rgba(15,34,64,.045) !important;
+  overflow:hidden !important;
+}
+
+.page-facturacion-360 .sat-clean-accordion__summary--bar{
+  min-height:54px !important;
+  padding:0 14px !important;
+  background:linear-gradient(180deg,#ffffff 0%,#fbfdff 100%) !important;
+}
+
+.page-facturacion-360 .sat-clean-accordion__content{
+  padding:12px 14px 14px !important;
+}
+
+.page-facturacion-360 .fx360-topgrid{
+  margin-top:12px;
+}
+
+.page-facturacion-360 .fx360-kpi{
+  min-height:96px;
+}
+
+.page-facturacion-360 .fx360-tile{
+  max-width:320px;
+}
+
+.page-facturacion-360 .fx360-table-card{
+  margin-top:0 !important;
+  border-radius:16px !important;
+  border:1px solid #e4edf8 !important;
+  background:#ffffff !important;
+  overflow:auto !important;
+}
+
+.page-facturacion-360 .sat-clean-rfc-table th,
+.page-facturacion-360 .sat-clean-rfc-table td{
+  white-space:nowrap;
+  vertical-align:middle;
+}
+
+.page-facturacion-360 .sat-clean-rfc-table td:first-child{
+  white-space:normal;
+  min-width:240px;
+}
+
+.page-facturacion-360 .sat-clean-rfc-table td:last-child,
+.page-facturacion-360 .sat-clean-rfc-table th:last-child{
+  width:150px;
+}
+
+.page-facturacion-360 .fx360-actions-icons{
+  min-width:128px;
+}
+
+.page-facturacion-360 .fx360-action-icon{
+  flex:0 0 36px;
+}
+
+.page-facturacion-360 .fx360-panel{
+  margin-top:0 !important;
+}
+
+.page-facturacion-360 .fx360-filters{
+  align-items:end;
+}
+
+@media (max-width:1180px){
+  .page-facturacion-360 .fx360-tile{
+    max-width:none;
+  }
+}

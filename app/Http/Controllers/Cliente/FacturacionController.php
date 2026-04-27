@@ -208,6 +208,174 @@ class FacturacionController extends Controller
 
         return $cuenta;
     }
+
+    protected function accountSummarySafe(): array
+{
+    $cuenta = $this->currentCuenta();
+
+    $summary = [
+        'id' => null,
+        'nombre' => 'Cuenta cliente',
+        'plan' => 'FREE',
+        'plan_key' => 'free',
+        'is_pro' => false,
+        'blocked' => false,
+        'estado_cuenta' => 'activa',
+        'modo_cobro' => null,
+        'monto' => 0,
+        'moneda' => 'MXN',
+    ];
+
+    if (! $cuenta || empty($cuenta->id)) {
+        return $summary;
+    }
+
+    $summary['id'] = $cuenta->id;
+
+    foreach (['nombre_comercial', 'razon_social', 'nombre'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $summary['nombre'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['tipo_cuenta', 'plan', 'licencia', 'paquete'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $plan = strtoupper(trim((string) $cuenta->{$field}));
+            $summary['plan'] = $plan;
+            $summary['plan_key'] = strtolower($plan);
+            $summary['is_pro'] = in_array(strtolower($plan), ['pro', 'premium', 'enterprise', 'empresarial'], true);
+            break;
+        }
+    }
+
+    foreach (['is_blocked', 'bloqueado', 'blocked'] as $field) {
+        if (isset($cuenta->{$field})) {
+            $summary['blocked'] = (bool) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['estado_cuenta', 'estatus', 'status'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $summary['estado_cuenta'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['modo_cobro', 'ciclo_cobro', 'billing_cycle'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $summary['modo_cobro'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['monto_licencia', 'precio_licencia', 'monto', 'precio', 'monthly_price'] as $field) {
+        if (isset($cuenta->{$field}) && is_numeric($cuenta->{$field})) {
+            $summary['monto'] = (float) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['moneda', 'currency'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $summary['moneda'] = strtoupper((string) $cuenta->{$field});
+            break;
+        }
+    }
+
+    try {
+        $cuentaId = (string) $cuenta->id;
+
+        $adminTables = [
+            'cuentas',
+            'clientes',
+            'cuentas_cliente',
+            'clientes_cuentas',
+        ];
+
+        foreach ($adminTables as $table) {
+            if (! $this->tableExists($table, 'mysql')) {
+                continue;
+            }
+
+            $query = DB::connection('mysql')->table($table);
+
+            if ($this->hasColumn($table, 'id', 'mysql')) {
+                $query->where('id', $cuentaId);
+            } elseif ($this->hasColumn($table, 'cuenta_id', 'mysql')) {
+                $query->where('cuenta_id', $cuentaId);
+            } else {
+                continue;
+            }
+
+            $adminCuenta = $query->first();
+
+            if (! $adminCuenta) {
+                continue;
+            }
+
+            foreach (['nombre_comercial', 'razon_social', 'nombre'] as $field) {
+                if (! empty($adminCuenta->{$field})) {
+                    $summary['nombre'] = (string) $adminCuenta->{$field};
+                    break;
+                }
+            }
+
+            foreach (['tipo_cuenta', 'plan', 'licencia', 'paquete'] as $field) {
+                if (! empty($adminCuenta->{$field})) {
+                    $plan = strtoupper(trim((string) $adminCuenta->{$field}));
+                    $summary['plan'] = $plan;
+                    $summary['plan_key'] = strtolower($plan);
+                    $summary['is_pro'] = in_array(strtolower($plan), ['pro', 'premium', 'enterprise', 'empresarial'], true);
+                    break;
+                }
+            }
+
+            foreach (['is_blocked', 'bloqueado', 'blocked'] as $field) {
+                if (isset($adminCuenta->{$field})) {
+                    $summary['blocked'] = (bool) $adminCuenta->{$field};
+                    break;
+                }
+            }
+
+            foreach (['estado_cuenta', 'estatus', 'status'] as $field) {
+                if (! empty($adminCuenta->{$field})) {
+                    $summary['estado_cuenta'] = (string) $adminCuenta->{$field};
+                    break;
+                }
+            }
+
+            foreach (['modo_cobro', 'ciclo_cobro', 'billing_cycle'] as $field) {
+                if (! empty($adminCuenta->{$field})) {
+                    $summary['modo_cobro'] = (string) $adminCuenta->{$field};
+                    break;
+                }
+            }
+
+            foreach (['monto_licencia', 'precio_licencia', 'monto', 'precio', 'monthly_price'] as $field) {
+                if (isset($adminCuenta->{$field}) && is_numeric($adminCuenta->{$field})) {
+                    $summary['monto'] = (float) $adminCuenta->{$field};
+                    break;
+                }
+            }
+
+            foreach (['moneda', 'currency'] as $field) {
+                if (! empty($adminCuenta->{$field})) {
+                    $summary['moneda'] = strtoupper((string) $adminCuenta->{$field});
+                    break;
+                }
+            }
+
+            break;
+        }
+    } catch (\Throwable $e) {
+        report($e);
+    }
+
+    return $summary;
+}
+
     protected function fiscalCatalogs(): array
     {
         return [
@@ -368,20 +536,44 @@ class FacturacionController extends Controller
         $q = Cfdi::on($conn);
         $cuenta = $this->currentCuenta();
 
-        $emiConn = $this->firstConnWith('emisores', ['mysql_clientes', 'mysql']) ?? $conn;
+        if (! $cuenta || empty($cuenta->id)) {
+            return $q->whereRaw('1 = 0');
+        }
 
-        if ($cuenta && $this->hasColumn('emisores', 'cuenta_id', $emiConn)) {
-            try {
-                $ids = Emisor::on($emiConn)
-                    ->where('cuenta_id', $cuenta->id)
-                    ->pluck('id')
-                    ->all();
-            } catch (\Throwable $e) {
-                $ids = [];
+        $cuentaId = (string) $cuenta->id;
+        $cfdiTable = (new Cfdi)->getTable();
+
+        $credentialIds = [];
+
+        try {
+            $credentialIds = SatCredential::query()
+                ->where(function ($w) use ($cuentaId) {
+                    $w->where('cuenta_id', $cuentaId)
+                        ->orWhere('account_id', $cuentaId);
+                })
+                ->pluck('id')
+                ->all();
+        } catch (\Throwable $e) {
+            $credentialIds = [];
+        }
+
+        $q->where(function ($w) use ($cfdiTable, $conn, $cuenta, $cuentaId, $credentialIds) {
+            if ($this->hasColumn($cfdiTable, 'cuenta_id', $conn)) {
+                $w->orWhere('cuenta_id', $cuentaId);
             }
 
-            $q->whereIn('cliente_id', empty($ids) ? [-1] : $ids);
-        }
+            if ($this->hasColumn($cfdiTable, 'account_id', $conn)) {
+                $w->orWhere('account_id', $cuentaId);
+            }
+
+            if ($this->hasColumn($cfdiTable, 'emisor_credential_id', $conn) && ! empty($credentialIds)) {
+                $w->orWhereIn('emisor_credential_id', $credentialIds);
+            }
+
+            if (is_numeric($cuenta->id) && $this->hasColumn($cfdiTable, 'cliente_id', $conn)) {
+                $w->orWhere('cliente_id', (int) $cuenta->id);
+            }
+        });
 
         return $q;
     }
@@ -470,137 +662,149 @@ class FacturacionController extends Controller
     }
 
     public function index(Request $request): View
-    {
-        [$from, $to] = $this->resolvePeriod($request);
-        $base = $this->cfdiBaseQuery($request);
+{
+    [$from, $to] = $this->resolvePeriod($request);
+    $base = $this->cfdiBaseQuery($request);
 
-        $q = $this->applyFilters(
-            (clone $base)->whereBetween('fecha', [$from, $to]),
-            $request
-        )->with([
-            'cliente:id,razon_social,nombre_comercial,rfc',
-            'conceptos:id,cfdi_id,descripcion',
-        ]);
+    $cfdiTable = (new Cfdi)->getTable();
+    $conn = $this->cfdiConn();
 
-        $perPage = (int) $request->integer('per_page', 15);
+    $baseColumns = [
+        'id',
+        'uuid',
+        'serie',
+        'folio',
+        'subtotal',
+        'iva',
+        'total',
+        'fecha',
+        'estatus',
+        'cliente_id',
+        'receptor_id',
+        'metodo_pago',
+        'forma_pago',
+    ];
 
-        $cfdis = $q->orderByDesc('fecha')
-            ->paginate($perPage, [
-                'id',
-                'uuid',
-                'serie',
-                'folio',
-                'subtotal',
-                'iva',
-                'total',
-                'fecha',
-                'estatus',
-                'cliente_id',
-                'receptor_id',
-                'metodo_pago',
-                'forma_pago',
-                'tipo_documento',
-                'tipo_comprobante',
-            ])
-            ->withQueryString();
+    $optionalColumns = [
+        'tipo_comprobante',
+        'tipo_documento',
+        'cuenta_id',
+    ];
 
-        $current = $cfdis->getCollection()->first();
+    $columns = $baseColumns;
 
-        if (!$current) {
-            $current = (object) [
-                'id' => null,
-                'uuid' => null,
-                'serie' => null,
-                'folio' => null,
-                'subtotal' => 0,
-                'iva' => 0,
-                'total' => 0,
-                'fecha' => null,
-                'estatus' => null,
-                'cliente_id' => null,
-            ];
+    foreach ($optionalColumns as $col) {
+        if ($this->hasColumn($cfdiTable, $col, $conn)) {
+            $columns[] = $col;
         }
+    }
 
-        $kpis = $this->calcKpis($request, $from, $to);
-        $series = $this->buildSeries($request, $from, $to);
+    $conceptoTable = 'cfdi_conceptos';
 
-        $summary = $this->accountSummarySafe();
-        $isPro = (bool) ($summary['is_pro'] ?? false);
-        $plan = $isPro ? 'PRO' : 'FREE';
-        $planKey = $isPro ? 'pro' : 'free';
+    $conceptoColumns = [
+        'id',
+        'cfdi_id',
+        'descripcion',
+        'cantidad',
+        'precio_unitario',
+    ];
 
-        $accountFeatures = [
-            'is_pro' => $isPro,
-            'blocked' => (bool) ($summary['blocked'] ?? false),
-            'cfdi_manual' => true,
-            'cfdi_emitidos' => true,
-            'cfdi_descargas' => true,
-            'cfdi_cancelacion' => true,
-            'catalogos' => true,
-            'asistente_fiscal' => true,
-            'validacion_inteligente' => true,
-            'autollenado_receptor' => true,
-            'rep_control' => true,
-            'cfdi_masivo' => $isPro,
-            'excel_templates' => $isPro,
-            'batch_processing' => $isPro,
-            'nomina_masiva' => $isPro,
-            'cfdi_nomina_pro' => $isPro,
-            'rep_masivo' => $isPro,
-            'carta_porte_masiva' => $isPro,
-            'api_integrations' => $isPro,
-            'automation_rules' => $isPro,
+    foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total'] as $col) {
+        if ($this->hasColumn($conceptoTable, $col, $conn)) {
+            $conceptoColumns[] = $col;
+        }
+    }
+
+    $q = $this->applyFilters(
+        (clone $base)->whereBetween('fecha', [$from, $to]),
+        $request
+    )->with([
+        'cliente:id,razon_social,nombre_comercial,rfc',
+        'receptor:id,razon_social,nombre_comercial,rfc',
+        'conceptos' => function ($q) use ($conceptoColumns) {
+            $q->select($conceptoColumns);
+        },
+    ]);
+
+    $perPage = (int) $request->integer('per_page', 15);
+
+    $cfdis = $q->orderByDesc('fecha')
+        ->paginate($perPage, $columns)
+        ->withQueryString();
+
+    $current = $cfdis->getCollection()->first();
+
+    if (! $current) {
+        $current = (object) [
+            'id' => null,
+            'uuid' => null,
+            'serie' => null,
+            'folio' => null,
+            'subtotal' => 0,
+            'iva' => 0,
+            'total' => 0,
+            'fecha' => null,
+            'estatus' => null,
+            'cliente_id' => null,
         ];
-
-        return view('cliente.facturacion.index', [
-            'summary' => $summary,
-            'plan' => $plan,
-            'planKey' => $planKey,
-            'isPro' => $isPro,
-            'accountFeatures' => $accountFeatures,
-            'period_from' => $from,
-            'period_to' => $to,
-            'kpis' => $kpis,
-            'series' => $series,
-            'cfdis' => $cfdis,
-            'cfdi' => $current,
-            'filters' => [
-                'q' => trim((string) $request->input('q', '')),
-                'status' => trim((string) $request->input('status', '')),
-                'month' => trim((string) $request->input('month', '')),
-                'mes' => (int) Carbon::parse($from)->format('m'),
-                'anio' => (int) Carbon::parse($from)->format('Y'),
-            ],
-        ]);
     }
 
-    protected function accountSummarySafe(): array
+    $kpis = $this->calcKpis($request, $from, $to);
+    $series = $this->buildSeries($request, $from, $to);
+
+    $summary = $this->accountSummarySafe();
+    $isPro = (bool) ($summary['is_pro'] ?? false);
+    $plan = $isPro ? 'PRO' : 'FREE';
+    $planKey = $isPro ? 'pro' : 'free';
+
+    $accountFeatures = [
+        'is_pro' => $isPro,
+        'blocked' => (bool) ($summary['blocked'] ?? false),
+        'cfdi_manual' => true,
+        'cfdi_emitidos' => true,
+        'cfdi_descargas' => true,
+        'cfdi_cancelacion' => true,
+        'catalogos' => true,
+        'asistente_fiscal' => true,
+        'validacion_inteligente' => true,
+        'autollenado_receptor' => true,
+        'rep_control' => true,
+        'cfdi_masivo' => $isPro,
+        'excel_templates' => $isPro,
+        'batch_processing' => $isPro,
+        'nomina_masiva' => $isPro,
+        'cfdi_nomina_pro' => $isPro,
+        'rep_masivo' => $isPro,
+        'carta_porte_masiva' => $isPro,
+        'api_integrations' => $isPro,
+        'automation_rules' => $isPro,
+    ];
+
+    return view('cliente.facturacion.index', [
+        'summary' => $summary,
+        'plan' => $plan,
+        'planKey' => $planKey,
+        'isPro' => $isPro,
+        'accountFeatures' => $accountFeatures,
+        'period_from' => $from,
+        'period_to' => $to,
+        'kpis' => $kpis,
+        'series' => $series,
+        'cfdis' => $cfdis,
+        'cfdi' => $current,
+        'filters' => [
+            'q' => trim((string) $request->input('q', '')),
+            'status' => trim((string) $request->input('status', '')),
+            'month' => trim((string) $request->input('month', '')),
+            'mes' => (int) Carbon::parse($from)->format('m'),
+            'anio' => (int) Carbon::parse($from)->format('Y'),
+        ],
+    ]);
+}
+    public function create(?Request $request = null): View
     {
-        try {
-            $summary = app(HomeController::class)->buildAccountSummary();
-        } catch (\Throwable $e) {
-            $summary = [];
-        }
+        $request = $request ?: request();
 
-        $cuenta = $this->currentCuenta();
-        $raw = strtolower((string) ($summary['plan_raw'] ?? $summary['plan_norm'] ?? $summary['plan'] ?? $cuenta->plan_actual ?? $cuenta->plan ?? 'free'));
-        $raw = str_replace([' ', '-'], '_', trim($raw));
-
-        $isPro = (bool) ($summary['is_pro'] ?? false)
-            || in_array($raw, ['pro', 'pro_mensual', 'pro_anual', 'premium', 'empresa', 'business'], true)
-            || str_starts_with($raw, 'pro_');
-
-        $summary['is_pro'] = $isPro;
-        $summary['plan'] = $isPro ? 'PRO' : 'FREE';
-        $summary['plan_norm'] = $isPro ? 'pro' : 'free';
-        $summary['blocked'] = (bool) ($summary['blocked'] ?? ((int) ($cuenta->is_blocked ?? 0) === 1));
-        $summary['timbres'] = (int) ($summary['timbres'] ?? $cuenta->timbres_disponibles ?? 0);
-
-        return $summary;
-    }
-
-    public function create(Request $request): View
-    {
         $cuenta = $this->currentCuenta();
 
         $emisores = collect();
@@ -847,6 +1051,7 @@ class FacturacionController extends Controller
         $cfdiTable = $cfdiModel->getTable();
         $conceptoTable = $conceptoModel->getTable();
         $clienteIdForCfdi = is_numeric($cuenta->id) ? (int) $cuenta->id : 0;
+        $cuentaIdForCfdi = (string) $cuenta->id;
         $uuidTemp = 'BORRADOR-' . strtoupper((string) Str::uuid());
 
         DB::connection($conn)->transaction(function () use (
@@ -864,12 +1069,14 @@ class FacturacionController extends Controller
                 $tipoDocumento,
                 $assistant,
                 $clienteIdForCfdi,
+                $cuentaIdForCfdi,
                 $emisorCredential
             ) {
             $now = now();
 
             $cfdiPayload = [
                 'cliente_id' => $clienteIdForCfdi,
+                'cuenta_id' => $cuentaIdForCfdi,
                 'emisor_credential_id' => $emisorCredential->id,
                 'emisor_rfc' => $emisorCredential->rfc,
                 'emisor_razon_social' => $emisorCredential->razon_social,
@@ -952,6 +1159,128 @@ class FacturacionController extends Controller
             ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
             ->with('ok', 'Borrador CFDI 4.0 creado correctamente con revisión fiscal inteligente.');
     }
+
+    protected function findOwnedCfdi(int $cfdiId)
+{
+    $conn = $this->cfdiConn();
+    $conceptoTable = 'cfdi_conceptos';
+
+    $conceptoColumns = [
+        'id',
+        'cfdi_id',
+        'descripcion',
+        'cantidad',
+        'precio_unitario',
+    ];
+
+    foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total'] as $col) {
+        if ($this->hasColumn($conceptoTable, $col, $conn)) {
+            $conceptoColumns[] = $col;
+        }
+    }
+
+    return $this->cfdiBaseQuery(request())
+        ->where('id', $cfdiId)
+        ->with([
+            'cliente:id,razon_social,nombre_comercial,rfc',
+            'receptor:id,razon_social,nombre_comercial,rfc',
+            'conceptos' => function ($q) use ($conceptoColumns) {
+                $q->select($conceptoColumns);
+            },
+        ])
+        ->firstOrFail();
+}
+
+public function edit(int $cfdi): View
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (strtolower((string) $item->estatus) !== 'borrador') {
+        abort(403, 'Solo se pueden editar CFDI en borrador.');
+    }
+
+    $data = $this->create()->getData();
+
+    return view('cliente.facturacion.edit', array_merge($data, [
+        'cfdi' => $item,
+        'modoEdicion' => true,
+    ]));
+}
+
+public function show(int $cfdi): View
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    return view('cliente.facturacion.show', [
+        'cfdi' => $item,
+        'summary' => [],
+    ]);
+}
+
+public function destroy(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (strtolower((string) $item->estatus) !== 'borrador') {
+        return back()->withErrors([
+            'cfdi' => 'Solo se pueden eliminar CFDI en borrador.',
+        ]);
+    }
+
+    $conn = $this->cfdiConn();
+
+    DB::connection($conn)->transaction(function () use ($conn, $item) {
+        DB::connection($conn)
+            ->table('cfdi_conceptos')
+            ->where('cfdi_id', $item->id)
+            ->delete();
+
+        DB::connection($conn)
+            ->table('cfdis')
+            ->where('id', $item->id)
+            ->delete();
+    });
+
+    return redirect()
+        ->route('cliente.facturacion.index')
+        ->with('ok', 'Borrador eliminado correctamente.');
+}
+
+public function timbrar(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (strtolower((string) $item->estatus) !== 'borrador') {
+        return back()->withErrors([
+            'cfdi' => 'Este CFDI ya no está en borrador.',
+        ]);
+    }
+
+    $conn = $this->cfdiConn();
+    $table = (new Cfdi)->getTable();
+
+    $payload = [
+        'estatus' => 'timbrado',
+        'updated_at' => now(),
+    ];
+
+    if ($this->hasColumn($table, 'uuid', $conn) && str_starts_with((string) $item->uuid, 'BORRADOR-')) {
+        $payload['uuid'] = strtoupper((string) Str::uuid());
+    }
+
+    if ($this->hasColumn($table, 'fecha_timbrado', $conn)) {
+        $payload['fecha_timbrado'] = now();
+    }
+
+    DB::connection($conn)
+        ->table($table)
+        ->where('id', $item->id)
+        ->update($payload);
+
+    return redirect()
+        ->route('cliente.facturacion.index')
+        ->with('ok', 'CFDI marcado como timbrado internamente. Falta conectar PAC/XML real.');
+}
 
     public function receptorShow(int $receptor): JsonResponse
     {
@@ -1046,40 +1375,201 @@ class FacturacionController extends Controller
         ]);
     }
 
-    public function update(Request $request, $rfc)
-{
-    $credential = $this->findCredential($rfc);
+    public function actualizar(Request $request, int $cfdi)
+    {
+        $item = $this->findOwnedCfdi($cfdi);
 
-    $this->validateMain($request, false);
-    $this->persistCredential($credential, $request, false);
+        if (strtolower((string) $item->estatus) !== 'borrador') {
+            return back()->withErrors([
+                'cfdi' => 'Solo se pueden actualizar CFDI en borrador.',
+            ]);
+        }
 
-    if (
-        $request->hasFile('fiel_cer') ||
-        $request->hasFile('fiel_key') ||
-        $request->filled('fiel_password') ||
-        $request->hasFile('csd_cer') ||
-        $request->hasFile('csd_key') ||
-        $request->filled('csd_password') ||
-        $request->filled('csd_serie') ||
-        $request->filled('csd_vigencia_hasta')
-    ) {
-        $request->validate([
-            'fiel_cer' => ['nullable', 'file', 'max:5120'],
-            'fiel_key' => ['nullable', 'file', 'max:5120'],
-            'fiel_password' => ['nullable', 'string', 'max:190'],
-            'csd_cer' => ['nullable', 'file', 'max:5120'],
-            'csd_key' => ['nullable', 'file', 'max:5120'],
-            'csd_password' => ['nullable', 'string', 'max:190'],
-            'csd_serie' => ['nullable', 'string', 'max:80'],
-            'csd_vigencia_hasta' => ['nullable', 'date'],
+        $data = $request->validate([
+            'cliente_id' => ['required', 'string', 'max:80'],
+            'receptor_id' => ['required', 'integer'],
+            'serie' => ['nullable', 'string', 'max:10'],
+            'folio' => ['nullable', 'string', 'max:20'],
+            'fecha' => ['nullable', 'date'],
+            'moneda' => ['nullable', 'string', 'max:10'],
+            'metodo_pago' => ['nullable', 'string', 'max:10'],
+            'forma_pago' => ['nullable', 'string', 'max:10'],
+            'conceptos' => ['required', 'array', 'min:1'],
+            'conceptos.*.producto_id' => ['nullable'],
+            'conceptos.*.descripcion' => ['required', 'string', 'max:500'],
+            'conceptos.*.cantidad' => ['required', 'numeric', 'min:0.0001'],
+            'conceptos.*.precio_unitario' => ['required', 'numeric', 'min:0'],
+            'conceptos.*.iva_tasa' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $this->persistCertificates($credential, $request);
-        $credential->save();
-    }
+        $cuenta = $this->currentCuenta();
 
-    return redirect()->route('cliente.rfcs.index')->with('ok', 'RFC actualizado correctamente.');
-}
+        if (!$cuenta) {
+            return back()->withInput()->withErrors([
+                'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
+            ]);
+        }
+
+        $emisorCredential = SatCredential::query()
+            ->where(function ($q) use ($cuenta) {
+                $q->where('cuenta_id', (string) $cuenta->id)
+                    ->orWhere('account_id', (string) $cuenta->id);
+            })
+            ->where('id', $data['cliente_id'])
+            ->first();
+
+        if (!$emisorCredential) {
+            return back()->withInput()->withErrors([
+                'cliente_id' => 'El RFC emisor seleccionado no pertenece a esta cuenta.',
+            ]);
+        }
+
+        $receptor = Receptor::query()
+            ->where('cuenta_id', $cuenta->id)
+            ->where('id', $data['receptor_id'])
+            ->first();
+
+        if (!$receptor) {
+            return back()->withInput()->withErrors([
+                'receptor_id' => 'El receptor seleccionado no pertenece a esta cuenta.',
+            ]);
+        }
+
+        $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
+        $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
+
+        if ($metodoPago === 'PPD') {
+            $formaPago = '99';
+        }
+
+        $subtotal = 0.0;
+        $iva = 0.0;
+        $total = 0.0;
+
+        foreach ($data['conceptos'] as $concepto) {
+            $cantidad = (float) $concepto['cantidad'];
+            $precio = (float) $concepto['precio_unitario'];
+            $tasa = isset($concepto['iva_tasa']) ? (float) $concepto['iva_tasa'] : 0.16;
+
+            $lineSubtotal = round($cantidad * $precio, 4);
+            $lineIva = round($lineSubtotal * $tasa, 4);
+            $lineTotal = round($lineSubtotal + $lineIva, 4);
+
+            $subtotal += $lineSubtotal;
+            $iva += $lineIva;
+            $total += $lineTotal;
+        }
+
+        $subtotal = round($subtotal, 2);
+        $iva = round($iva, 2);
+        $total = round($total, 2);
+
+        $assistant = $this->fiscalAssistant([
+            'rfc' => $receptor->rfc,
+            'regimen_receptor' => $receptor->regimen_fiscal,
+            'cp_receptor' => $receptor->codigo_postal,
+            'uso_cfdi' => $receptor->uso_cfdi,
+            'metodo_pago' => $metodoPago,
+            'forma_pago' => $formaPago,
+            'tipo_documento' => $item->tipo_documento ?? $item->tipo_comprobante ?? 'I',
+            'total' => $total,
+        ]);
+
+        if (!$assistant['ok']) {
+            return back()->withInput()->withErrors([
+                'asistente_fiscal' => implode(' ', $assistant['errors']),
+            ]);
+        }
+
+        $conn = $this->cfdiConn();
+        $cfdiTable = (new Cfdi)->getTable();
+        $conceptoTable = (new CfdiConcepto)->getTable();
+
+        DB::connection($conn)->transaction(function () use (
+            $conn,
+            $cfdiTable,
+            $conceptoTable,
+            $item,
+            $data,
+            $subtotal,
+            $iva,
+            $total,
+            $metodoPago,
+            $formaPago,
+            $assistant,
+            $emisorCredential
+        ) {
+            $now = now();
+
+            $cfdiPayload = [
+                'cliente_id' => is_numeric($item->cliente_id) ? (int) $item->cliente_id : 0,
+                'emisor_credential_id' => $emisorCredential->id,
+                'emisor_rfc' => $emisorCredential->rfc,
+                'emisor_razon_social' => $emisorCredential->razon_social,
+                'receptor_id' => $data['receptor_id'],
+                'serie' => $data['serie'] ?? null,
+                'folio' => $data['folio'] ?? null,
+                'fecha' => $data['fecha'] ?? $now,
+                'moneda' => $data['moneda'] ?? 'MXN',
+                'metodo_pago' => $metodoPago,
+                'forma_pago' => $formaPago,
+                'subtotal' => $subtotal,
+                'iva' => $iva,
+                'total' => $total,
+                'saldo_original' => $total,
+                'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
+                'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
+                'ia_fiscal_score' => $assistant['score'],
+                'ia_fiscal_nivel' => $assistant['nivel'],
+                'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
+                'updated_at' => $now,
+            ];
+
+            $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+
+            DB::connection($conn)
+                ->table($cfdiTable)
+                ->where('id', $item->id)
+                ->update($cfdiPayload);
+
+            DB::connection($conn)
+                ->table($conceptoTable)
+                ->where('cfdi_id', $item->id)
+                ->delete();
+
+            foreach ($data['conceptos'] as $concepto) {
+                $cantidad = (float) $concepto['cantidad'];
+                $precio = (float) $concepto['precio_unitario'];
+                $tasa = isset($concepto['iva_tasa']) ? (float) $concepto['iva_tasa'] : 0.16;
+
+                $lineSubtotal = round($cantidad * $precio, 4);
+                $lineIva = round($lineSubtotal * $tasa, 4);
+                $lineTotal = round($lineSubtotal + $lineIva, 4);
+
+                $conceptoPayload = [
+                    'cfdi_id' => $item->id,
+                    'producto_id' => $concepto['producto_id'] ?? null,
+                    'descripcion' => $concepto['descripcion'],
+                    'cantidad' => $cantidad,
+                    'precio_unitario' => $precio,
+                    'iva_tasa' => $tasa,
+                    'subtotal' => round($lineSubtotal, 2),
+                    'iva' => round($lineIva, 2),
+                    'total' => round($lineTotal, 2),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+
+                $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
+
+                DB::connection($conn)->table($conceptoTable)->insert($conceptoPayload);
+            }
+        });
+
+        return redirect()
+            ->route('cliente.facturacion.show', $item->id)
+            ->with('ok', 'CFDI actualizado correctamente.');
+    }
 
     protected function validateReceptorPayload(Request $request): array
     {
