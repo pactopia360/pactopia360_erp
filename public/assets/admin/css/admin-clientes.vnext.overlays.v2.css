@@ -1,826 +1,585 @@
 /* public/assets/admin/css/admin-clientes.vnext.overlays.v2.css */
-/* Pactopia360 · Admin Clientes · Overlays v2 (Drawer + Modals) */
-/* Objetivo:
-   - Mejor jerarquía visual
-   - Header/Footer sticky
-   - Un solo scroll (contenido del overlay)
-   - Cards y grids consistentes
-   - No rompe IDs existentes (dr_*, mEdit_*, etc.)
-*/
+/* Pactopia360 · Admin Clientes · Drawer/Modales v2 · Nuevo diseño responsive */
 
-:root{
-  --ac-ov-radius: 18px;
-  --ac-ov-border: rgba(15,23,42,.12);
-  --ac-ov-shadow: 0 18px 45px rgba(2,6,23,.18);
-  --ac-ov-bg: #fff;
-  --ac-ov-muted: #64748b;
-  --ac-ov-title: #0f172a;
-  --ac-ov-sub: #334155;
-  --ac-ov-surface: #f8fafc;
-  --ac-ov-surface2: #ffffff;
-  --ac-ov-gap: 12px;
-
-  --ac-ov-sticky-h: 70px;
-  --ac-ov-footer-h: 70px;
+html.ac-modal-open,
+body.ac-modal-open{
+  overflow:hidden !important;
 }
 
-/* ============ */
-/* Base overlay */
-/* ============ */
-
-.ac-modal-card,
-.ac-drawer-panel{
-  border-radius: var(--ac-ov-radius);
-  box-shadow: var(--ac-ov-shadow);
-  border: 1px solid var(--ac-ov-border);
-  background: var(--ac-ov-bg);
+/* =========================
+   Drawer
+========================= */
+.ac-drawer{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:9990 !important;
+  display:none !important;
 }
 
-.ac-modal.show,
 .ac-drawer[aria-hidden="false"]{
-  /* evita clickthrough raro */
-  pointer-events: auto;
+  display:block !important;
 }
 
-/* ========================= */
-/* MODALES: layout base v2   */
-/* ========================= */
-
-.ac-modal-card{
-  width: min(920px, 94vw);
-  max-height: min(92vh, 980px);
-  display:flex;
-  flex-direction: column;
-  overflow: hidden; /* el scroll vive en el body */
+.ac-drawer-backdrop{
+  position:absolute !important;
+  inset:0 !important;
+  z-index:1 !important;
+  background:rgba(15,23,42,.50) !important;
+  backdrop-filter:blur(5px) !important;
 }
-
-.ac-modal-head{
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--ac-ov-bg);
-  border-bottom: 1px solid var(--ac-ov-border);
-  padding: 14px 16px;
-  display:flex;
-  align-items:flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ac-modal-head .ttl{
-  font-weight: 1000;
-  letter-spacing: .2px;
-  color: var(--ac-ov-title);
-}
-.ac-modal-head .sub{
-  margin-top: 2px;
-  font-weight: 800;
-  color: var(--ac-ov-muted);
-  font-size: 12.5px;
-}
-
-.ac-modal-head .x{
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  font-weight: 1000;
-  cursor:pointer;
-}
-.ac-modal-head .x:hover{
-  background: var(--ac-ov-surface);
-}
-
-.ac-modal .ac-form,
-.ac-modal .ac-tabs,
-.ac-modal .ac-credgrid{
-  padding: 14px 16px;
-  overflow: auto; /* ✅ scroll único dentro del modal */
-  flex: 1 1 auto;
-  background: linear-gradient(180deg, var(--ac-ov-surface2), var(--ac-ov-surface));
-}
-
-.ac-modal .ac-form-actions{
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  background: var(--ac-ov-bg);
-  border-top: 1px solid var(--ac-ov-border);
-  padding: 12px 16px;
-  display:flex;
-  gap: 10px;
-  justify-content: flex-end;
-}
-
-/* ========================= */
-/* DRAWER: layout base v2    */
-/* ========================= */
 
 .ac-drawer-panel{
-  width: min(520px, 94vw);
-  height: 100vh;
-  max-height: 100vh;
-  border-radius: 0; /* drawer pegado a borde derecho se ve mejor sin redondeo exterior */
-  border-left: 1px solid var(--ac-ov-border);
-  box-shadow: -14px 0 40px rgba(2,6,23,.16);
-  overflow: hidden;
-  display:flex;
-  flex-direction: column;
+  position:absolute !important;
+  top:74px !important;
+  right:18px !important;
+  bottom:18px !important;
+  z-index:2 !important;
+  width:min(500px, calc(100vw - 36px)) !important;
+  height:auto !important;
+  max-height:calc(100dvh - 92px) !important;
+  display:flex !important;
+  flex-direction:column !important;
+  overflow:hidden !important;
+  border:1px solid rgba(15,23,42,.10) !important;
+  border-radius:24px !important;
+  background:#f6f8fc !important;
+  box-shadow:-18px 24px 70px rgba(15,23,42,.26) !important;
 }
 
+/* Header compacto */
 .ac-drawer-head{
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  background: var(--ac-ov-bg);
-  border-bottom: 1px solid var(--ac-ov-border);
-  padding: 14px 16px;
-  display:flex;
-  align-items:flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex:0 0 auto !important;
+  min-height:auto !important;
+  padding:16px 18px !important;
+  display:flex !important;
+  align-items:flex-start !important;
+  justify-content:space-between !important;
+  gap:14px !important;
+  background:linear-gradient(135deg,#163f7d 0%,#2556aa 58%,#79a8ff 100%) !important;
+  color:#fff !important;
 }
 
 .ac-drawer-head .rfc{
-  font-size: 13px;
-  font-weight: 1000;
-  color: var(--ac-ov-muted);
-  letter-spacing: .3px;
+  max-width:380px !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+  font-size:11px !important;
+  font-weight:1000 !important;
+  letter-spacing:.06em !important;
+  text-transform:uppercase !important;
+  opacity:.9 !important;
 }
+
 .ac-drawer-head .rs{
-  margin-top: 2px;
-  font-size: 15px;
-  font-weight: 1000;
-  color: var(--ac-ov-title);
-  line-height: 1.15;
+  max-width:380px !important;
+  margin-top:6px !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+  font-size:21px !important;
+  line-height:1.08 !important;
+  font-weight:1000 !important;
+  letter-spacing:-.04em !important;
 }
+
 .ac-drawer-head .meta{
-  margin-top: 6px;
-  font-size: 12.5px;
-  font-weight: 850;
-  color: var(--ac-ov-sub);
-  opacity: .9;
+  margin-top:8px !important;
+  color:rgba(255,255,255,.9) !important;
+  font-size:11.5px !important;
+  font-weight:850 !important;
+  line-height:1.35 !important;
 }
 
 .ac-drawer-head .x{
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  font-weight: 1000;
-  cursor:pointer;
+  width:34px !important;
+  height:34px !important;
+  flex:0 0 34px !important;
+  border:1px solid rgba(255,255,255,.30) !important;
+  border-radius:12px !important;
+  background:rgba(255,255,255,.18) !important;
+  color:#fff !important;
+  font-size:14px !important;
+  font-weight:1000 !important;
+  cursor:pointer !important;
 }
-.ac-drawer-head .x:hover{ background: var(--ac-ov-surface); }
 
+/* Body */
 .ac-drawer-body{
-  flex: 1 1 auto;
-  overflow: auto; /* ✅ scroll único dentro del drawer */
-  padding: 14px 16px;
-  background: linear-gradient(180deg, var(--ac-ov-surface2), var(--ac-ov-surface));
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:12px !important;
+  display:grid !important;
+  align-content:start !important;
+  gap:10px !important;
+  background:#f6f8fc !important;
 }
 
-/* cards/secciones dentro del drawer */
-.ac-drawer-body > *{
-  margin-bottom: var(--ac-ov-gap);
-}
-.ac-drawer-body > *:last-child{
-  margin-bottom: 0;
+.ac-drawer-body::-webkit-scrollbar{
+  width:8px !important;
 }
 
+.ac-drawer-body::-webkit-scrollbar-thumb{
+  border:2px solid #f6f8fc !important;
+  border-radius:999px !important;
+  background:rgba(100,116,139,.35) !important;
+}
+
+/* KPIs compactos */
 .ac-drawer-kpis{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap: 10px;
+  display:grid !important;
+  grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+  gap:8px !important;
 }
+
 .ac-drawer-kpis .kpi{
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  border-radius: 16px;
-  padding: 10px 12px;
+  min-width:0 !important;
+  min-height:58px !important;
+  padding:10px !important;
+  border:1px solid rgba(15,23,42,.08) !important;
+  border-radius:16px !important;
+  background:#fff !important;
+  box-shadow:0 8px 18px rgba(15,23,42,.035) !important;
 }
+
 .ac-drawer-kpis .kpi .v{
-  font-size: 14px;
-  font-weight: 1000;
-  color: var(--ac-ov-title);
+  min-width:0 !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+  color:#0f172a !important;
+  font-size:14px !important;
+  line-height:1.15 !important;
+  font-weight:1000 !important;
 }
+
 .ac-drawer-kpis .kpi .k{
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 850;
-  color: var(--ac-ov-muted);
+  margin-top:5px !important;
+  color:#718096 !important;
+  font-size:9px !important;
+  font-weight:1000 !important;
+  letter-spacing:.06em !important;
+  text-transform:uppercase !important;
 }
 
-/* badges más compactos */
+/* Badges */
 .ac-drawer-badges{
-  display:flex;
-  flex-wrap:wrap;
-  gap: 8px;
-}
-.ac-drawer-badges .badge{
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-weight: 900;
+  display:flex !important;
+  flex-wrap:wrap !important;
+  align-items:center !important;
+  gap:6px !important;
 }
 
-/* blocks/contact como cards */
+.ac-drawer-badges .badge{
+  min-height:24px !important;
+  padding:5px 8px !important;
+  font-size:10.5px !important;
+}
+
+/* Tarjetas internas */
+.ac-drawer-contact,
+.ac-drawer-block,
+.ac-drawer-foot,
+.ac-adv{
+  border:1px solid rgba(15,23,42,.08) !important;
+  border-radius:18px !important;
+  background:#fff !important;
+  box-shadow:0 8px 20px rgba(15,23,42,.035) !important;
+}
+
 .ac-drawer-contact,
 .ac-drawer-block{
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px;
+  padding:12px !important;
 }
+
 .ac-drawer-contact .tt,
 .ac-drawer-block .tt{
-  font-weight: 1000;
-  color: var(--ac-ov-title);
-  margin-bottom: 8px;
+  color:#0f172a !important;
+  font-size:13px !important;
+  font-weight:1000 !important;
 }
+
 .ac-drawer-contact .grid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-.ac-drawer-contact .item .label{
-  font-size: 12px;
-  font-weight: 900;
-  color: var(--ac-ov-muted);
-}
-.ac-drawer-contact .item .value{
-  margin-top: 2px;
-  font-weight: 900;
-  color: var(--ac-ov-title);
-}
-.ac-drawer-contact code{
-  display:block;
-  border: 1px solid rgba(15,23,42,.08);
-  background: #f8fafc;
-  border-radius: 12px;
-  padding: 8px 10px;
+  display:grid !important;
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  gap:8px !important;
+  margin-top:9px !important;
 }
 
-/* acciones rápidas como “toolbar” */
+.ac-drawer-contact .item{
+  min-width:0 !important;
+  padding:9px 10px !important;
+  border:1px solid rgba(15,23,42,.08) !important;
+  border-radius:13px !important;
+  background:#f8fafc !important;
+}
+
+.ac-drawer-contact .label{
+  color:#718096 !important;
+  font-size:9px !important;
+  font-weight:1000 !important;
+  letter-spacing:.06em !important;
+  text-transform:uppercase !important;
+}
+
+.ac-drawer-contact .value{
+  min-width:0 !important;
+  margin-top:5px !important;
+  color:#0f172a !important;
+  font-size:11.5px !important;
+  font-weight:900 !important;
+}
+
+.ac-drawer-block .mono{
+  margin-top:9px !important;
+  color:#0f172a !important;
+  font-size:12px !important;
+  font-weight:900 !important;
+}
+
+.ac-drawer-block .mut{
+  margin-top:6px !important;
+  color:#64748b !important;
+  font-size:11px !important;
+  line-height:1.45 !important;
+  font-weight:800 !important;
+}
+
+.ac-ellipsis{
+  display:block !important;
+  max-width:100% !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+}
+
+/* Botones */
 .ac-drawer-actions{
-  display:flex;
-  flex-wrap:wrap;
-  gap: 8px;
+  display:flex !important;
+  flex-wrap:wrap !important;
+  gap:7px !important;
 }
 
-/* footer sticky dentro del drawer */
+.ac-drawer-actions .ac-btn,
+.ac-drawer-foot .ac-btn{
+  min-height:32px !important;
+  padding:0 11px !important;
+  border-radius:11px !important;
+  font-size:11.5px !important;
+  font-weight:1000 !important;
+}
+
+.ac-drawer-actions .ac-btn.primary,
+.ac-drawer-foot .ac-btn.primary{
+  background:linear-gradient(135deg,#7c3aed,#2563eb) !important;
+  border-color:rgba(37,99,235,.22) !important;
+  color:#fff !important;
+  box-shadow:0 10px 20px rgba(37,99,235,.20) !important;
+}
+
+/* Footer compacto */
 .ac-drawer-foot{
-  position: sticky;
-  bottom: 0;
-  z-index: 6;
-  background: var(--ac-ov-bg);
-  border-top: 1px solid var(--ac-ov-border);
-  margin: 0 -16px;           /* expande a ancho completo */
-  padding: 12px 16px 14px;
+  padding:12px !important;
+  display:grid !important;
+  gap:8px !important;
 }
 
-/* details avanzadas más “card” */
+.ac-drawer-foot form{
+  margin:0 !important;
+}
+
+.ac-drawer-foot > form .ac-btn{
+  width:max-content !important;
+}
+
+.ac-drawer-foot .ac-divider{
+  display:none !important;
+}
+
+/* Acciones avanzadas */
 .ac-adv{
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  border-radius: 16px;
-  padding: 10px 12px;
+  padding:0 !important;
+  overflow:hidden !important;
 }
+
 .ac-adv__summary{
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-  gap: 10px;
+  min-height:42px !important;
+  padding:0 12px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:10px !important;
+  cursor:pointer !important;
+  list-style:none !important;
 }
+
+.ac-adv__summary::-webkit-details-marker{
+  display:none !important;
+}
+
+.ac-adv__summary strong{
+  color:#0f172a !important;
+  font-size:12px !important;
+  font-weight:1000 !important;
+}
+
 .ac-adv__summary .mut{
-  color: var(--ac-ov-muted);
-  font-weight: 850;
-  font-size: 12.5px;
+  color:#64748b !important;
+  font-size:10.5px !important;
+  font-weight:850 !important;
 }
 
-/* ======== */
-/* Tabs v2  */
-/* ======== */
-.ac-tabs .ac-tabbar{
-  position: sticky;
-  top: calc(var(--ac-ov-sticky-h) - 10px);
-  z-index: 6;
-  background: linear-gradient(180deg, var(--ac-ov-bg), rgba(255,255,255,.92));
-  border: 1px solid var(--ac-ov-border);
-  border-radius: 16px;
-  padding: 6px;
-  display:flex;
-  gap: 6px;
-}
-.ac-tabs .ac-tab{
-  border-radius: 12px;
-  border: 1px solid transparent;
-  padding: 8px 10px;
-  font-weight: 950;
-  cursor:pointer;
-  background: transparent;
-}
-.ac-tabs .ac-tab.active{
-  background: #0f172a;
-  color: #fff;
-}
-.ac-tabs .ac-tabpane{
-  margin-top: 10px;
-  border: 1px solid var(--ac-ov-border);
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px;
+.ac-adv[open] .ac-adv__summary{
+  border-bottom:1px solid rgba(15,23,42,.07) !important;
 }
 
-/* ========================= */
-/* Responsivo                */
-/* ========================= */
-@media (min-width: 520px){
+.ac-adv .ac-drawer-actions{
+  padding:10px !important;
+}
+
+/* Notas */
+.ac-note{
+  padding:9px 10px !important;
+  border:1px solid rgba(15,23,42,.08) !important;
+  border-radius:13px !important;
+  background:#f8fafc !important;
+  color:#475569 !important;
+  font-size:11.5px !important;
+  line-height:1.4 !important;
+  font-weight:800 !important;
+}
+
+/* =========================
+   Modales generales
+========================= */
+.ac-modal{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:10000 !important;
+  display:none !important;
+}
+
+.ac-modal.show,
+.ac-modal[aria-hidden="false"]{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:18px !important;
+}
+
+.ac-modal-backdrop{
+  position:absolute !important;
+  inset:0 !important;
+  background:rgba(15,23,42,.52) !important;
+  backdrop-filter:blur(5px) !important;
+}
+
+.ac-modal-card{
+  position:relative !important;
+  z-index:1 !important;
+  width:min(760px, calc(100vw - 28px)) !important;
+  max-height:calc(100dvh - 28px) !important;
+  display:flex !important;
+  flex-direction:column !important;
+  overflow:hidden !important;
+  border:1px solid rgba(15,23,42,.10) !important;
+  border-radius:22px !important;
+  background:#fff !important;
+  box-shadow:0 24px 70px rgba(15,23,42,.26) !important;
+}
+
+.ac-modal-head{
+  min-height:66px !important;
+  padding:15px 18px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:14px !important;
+  border-bottom:1px solid rgba(15,23,42,.08) !important;
+  background:linear-gradient(180deg,#fff,#fbfdff) !important;
+}
+
+.ac-modal-head .ttl{
+  color:#0f172a !important;
+  font-size:18px !important;
+  font-weight:1000 !important;
+  letter-spacing:-.025em !important;
+}
+
+.ac-modal-head .sub{
+  margin-top:4px !important;
+  color:#64748b !important;
+  font-size:12px !important;
+  font-weight:850 !important;
+}
+
+.ac-modal-head .x{
+  width:34px !important;
+  height:34px !important;
+  flex:0 0 34px !important;
+  border:1px solid rgba(15,23,42,.10) !important;
+  border-radius:12px !important;
+  background:#fff !important;
+  color:#0f172a !important;
+  font-weight:1000 !important;
+  cursor:pointer !important;
+}
+
+.ac-modal-body,
+.ac-form{
+  min-height:0 !important;
+  overflow:auto !important;
+}
+
+.ac-form{
+  padding:16px !important;
+}
+
+.ac-form-actions{
+  flex:0 0 auto !important;
+  padding:13px 16px !important;
+  display:flex !important;
+  justify-content:flex-end !important;
+  align-items:center !important;
+  gap:9px !important;
+  border-top:1px solid rgba(15,23,42,.08) !important;
+  background:#fff !important;
+}
+
+/* Iframe modal */
+.ac-modal--iframe .ac-modal-card,
+.ac-if-card-shell{
+  width:min(1120px, calc(100vw - 28px)) !important;
+  height:min(820px, calc(100dvh - 28px)) !important;
+}
+
+.ac-if-head-actions{
+  display:flex !important;
+  align-items:center !important;
+  gap:8px !important;
+}
+
+.ac-if-status{
+  min-height:36px !important;
+  padding:0 16px !important;
+  display:flex !important;
+  align-items:center !important;
+  gap:8px !important;
+  border-bottom:1px solid rgba(15,23,42,.08) !important;
+  background:#f8fafc !important;
+  color:#64748b !important;
+  font-size:12px !important;
+  font-weight:850 !important;
+}
+
+.ac-if-status .dot{
+  width:8px !important;
+  height:8px !important;
+  border-radius:999px !important;
+  background:#10b981 !important;
+}
+
+.ac-if-wrap{
+  position:relative !important;
+  flex:1 !important;
+  min-height:0 !important;
+  background:#fff !important;
+}
+
+.ac-if-frame{
+  width:100% !important;
+  height:100% !important;
+  border:0 !important;
+  background:#fff !important;
+}
+
+/* Responsive */
+@media(max-width:1100px){
+  .ac-drawer-panel{
+    top:62px !important;
+    right:12px !important;
+    bottom:12px !important;
+    width:min(480px, calc(100vw - 24px)) !important;
+    max-height:calc(100dvh - 74px) !important;
+  }
+
+  .ac-drawer-kpis{
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  }
+}
+
+@media(max-width:760px){
+  .ac-drawer-panel{
+    top:0 !important;
+    right:0 !important;
+    bottom:0 !important;
+    width:100vw !important;
+    max-height:100dvh !important;
+    border-radius:0 !important;
+    border-right:0 !important;
+    border-top:0 !important;
+    border-bottom:0 !important;
+  }
+
+  .ac-drawer-head{
+    padding:15px !important;
+  }
+
+  .ac-drawer-head .rs{
+    font-size:20px !important;
+    white-space:normal !important;
+  }
+
+  .ac-drawer-body{
+    padding:11px !important;
+  }
+
+  .ac-drawer-kpis,
   .ac-drawer-contact .grid{
-    grid-template-columns: repeat(2, minmax(0,1fr));
-  }
-}
-@media (max-width: 420px){
-  .ac-drawer-kpis{ grid-template-columns: 1fr; }
-}
-
-/* =========================================================
-   HOTFIX UI v3 — Drawer Cliente
-   Mejora jerarquía, densidad, bloques y acciones
-   ========================================================= */
-
-#adminClientesPage .ac-drawer-panel{
-  width: min(560px, 96vw);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.98) 100%);
-}
-
-#adminClientesPage .ac-drawer-head{
-  padding: 16px 16px 14px;
-  background:
-    linear-gradient(180deg, rgba(248,250,252,.96) 0%, rgba(255,255,255,.98) 100%);
-  box-shadow: 0 1px 0 rgba(15,23,42,.04);
-}
-
-#adminClientesPage .ac-drawer-head > div:first-child{
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-#adminClientesPage .ac-drawer-head .rfc{
-  font-size: 11px;
-  font-weight: 1000;
-  text-transform: uppercase;
-  letter-spacing: .55px;
-  color: rgba(100,116,139,.95);
-}
-
-#adminClientesPage .ac-drawer-head .rs{
-  margin-top: 4px;
-  font-size: 18px;
-  line-height: 1.15;
-  font-weight: 1000;
-  color: #0f172a;
-  word-break: break-word;
-}
-
-#adminClientesPage .ac-drawer-head .meta{
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: rgba(51,65,85,.88);
-  font-weight: 800;
-}
-
-#adminClientesPage .ac-drawer-head .x{
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  transition: transform .12s ease, background .12s ease, border-color .12s ease;
-}
-
-#adminClientesPage .ac-drawer-head .x:hover{
-  transform: translateY(-1px);
-  border-color: rgba(15,23,42,.16);
-  background: rgba(15,23,42,.04);
-}
-
-#adminClientesPage .ac-drawer-body{
-  padding: 14px 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.72) 100%);
-}
-
-#adminClientesPage .ac-drawer-body > *{
-  margin-bottom: 0 !important;
-}
-
-/* =========================
-   KPIs superiores
-   ========================= */
-#adminClientesPage .ac-drawer-kpis{
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap: 10px;
-}
-
-#adminClientesPage .ac-drawer-kpis .kpi{
-  position: relative;
-  min-height: 74px;
-  padding: 12px 13px;
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.72) 100%);
-  box-shadow: 0 8px 22px rgba(15,23,42,.04);
-}
-
-#adminClientesPage .ac-drawer-kpis .kpi .v{
-  font-size: 18px;
-  line-height: 1.1;
-  font-weight: 1000;
-  color: #0f172a;
-  letter-spacing: -.2px;
-  word-break: break-word;
-}
-
-#adminClientesPage .ac-drawer-kpis .kpi .k{
-  margin-top: 6px;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: .35px;
-  text-transform: uppercase;
-  color: rgba(100,116,139,.92);
-}
-
-/* =========================
-   Badges de estado
-   ========================= */
-#adminClientesPage .ac-drawer-badges{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-#adminClientesPage .ac-drawer-badges .badge{
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 6px 11px;
-  border-radius: 999px;
-  font-weight: 900;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.45);
-}
-
-/* =========================
-   Cards internas
-   ========================= */
-#adminClientesPage .ac-drawer-contact,
-#adminClientesPage .ac-drawer-block{
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 18px;
-  padding: 14px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.75) 100%);
-  box-shadow: 0 10px 26px rgba(15,23,42,.04);
-}
-
-#adminClientesPage .ac-drawer-contact .tt,
-#adminClientesPage .ac-drawer-block .tt{
-  margin-bottom: 10px;
-  font-size: 14px;
-  line-height: 1.2;
-  font-weight: 1000;
-  color: #0f172a;
-}
-
-#adminClientesPage .ac-drawer-contact .grid{
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-#adminClientesPage .ac-drawer-contact .item{
-  min-width: 0;
-}
-
-#adminClientesPage .ac-drawer-contact .item .label{
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: .35px;
-  color: rgba(100,116,139,.92);
-}
-
-#adminClientesPage .ac-drawer-contact .item .value{
-  margin-top: 6px;
-}
-
-#adminClientesPage .ac-drawer-contact code{
-  display: block;
-  width: 100%;
-  min-width: 0;
-  padding: 10px 11px;
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 12px;
-  background: rgba(248,250,252,.9);
-  color: #0f172a;
-  font-size: 12px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* =========================
-   Estado de cuenta / recipients
-   ========================= */
-#adminClientesPage .ac-drawer-block .mono{
-  display: block;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #1e293b;
-  word-break: break-word;
-}
-
-#adminClientesPage .ac-drawer-block .mut{
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: rgba(100,116,139,.95);
-  word-break: break-word;
-}
-
-/* =========================
-   Acciones principales
-   ========================= */
-#adminClientesPage .ac-drawer-actions{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-#adminClientesPage .ac-drawer-actions .ac-btn{
-  min-height: 36px;
-  border-radius: 12px;
-}
-
-#adminClientesPage .ac-drawer-actions .ac-btn.small{
-  padding-inline: 12px;
-  font-weight: 900;
-}
-
-/* =========================
-   Separadores / notas
-   ========================= */
-#adminClientesPage .ac-divider{
-  height: 1px;
-  margin: 2px 0 0;
-  background: linear-gradient(
-    90deg,
-    rgba(15,23,42,0) 0%,
-    rgba(15,23,42,.09) 15%,
-    rgba(15,23,42,.09) 85%,
-    rgba(15,23,42,0) 100%
-  );
-}
-
-/* =========================
-   Footer sticky del drawer
-   ========================= */
-#adminClientesPage .ac-drawer-foot{
-  position: sticky;
-  bottom: 0;
-  z-index: 6;
-  margin: 0 -14px -16px;
-  padding: 12px 14px 14px;
-  border-top: 1px solid rgba(15,23,42,.08);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255,255,255,0) 0%,
-      rgba(255,255,255,.92) 18%,
-      rgba(248,250,252,.98) 100%
-    );
-  backdrop-filter: blur(10px);
-}
-
-#adminClientesPage .ac-drawer-foot > form,
-#adminClientesPage .ac-drawer-foot > .ac-note,
-#adminClientesPage .ac-drawer-foot > details{
-  margin-top: 10px;
-}
-
-#adminClientesPage .ac-drawer-foot > form:first-child,
-#adminClientesPage .ac-drawer-foot > details:first-child{
-  margin-top: 0;
-}
-
-#adminClientesPage .ac-drawer-foot form .ac-btn{
-  width: auto;
-  min-height: 38px;
-  border-radius: 12px;
-}
-
-#adminClientesPage .ac-drawer-foot #drFormImpersonate .ac-btn,
-#adminClientesPage .ac-drawer-foot #drFormResetPass .ac-btn,
-#adminClientesPage .ac-drawer-foot #drFormEmailCreds .ac-btn{
-  font-weight: 900;
-}
-
-#adminClientesPage .ac-drawer-foot #drFormEmailCreds .ac-btn{
-  box-shadow: 0 10px 24px rgba(109,40,217,.22);
-}
-
-/* =========================
-   Acciones avanzadas card
-   ========================= */
-#adminClientesPage .ac-adv{
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 16px;
-  padding: 12px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,.75) 100%);
-  box-shadow: 0 8px 20px rgba(15,23,42,.04);
-}
-
-#adminClientesPage .ac-adv__summary{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  cursor: pointer;
-  list-style: none;
-}
-
-#adminClientesPage .ac-adv__summary::-webkit-details-marker{
-  display: none;
-}
-
-#adminClientesPage .ac-adv__summary strong{
-  font-size: 14px;
-  color: #0f172a;
-}
-
-#adminClientesPage .ac-adv__summary .mut{
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(100,116,139,.95);
-}
-
-#adminClientesPage .ac-adv[open]{
-  border-color: rgba(15,23,42,.10);
-}
-
-/* =========================
-   Formularios inline dentro de acciones avanzadas
-   ========================= */
-#adminClientesPage #drFormBlock,
-#adminClientesPage #drFormUnblock,
-#adminClientesPage #drFormDeactivate,
-#adminClientesPage #drFormReactivate,
-#adminClientesPage #drFormDelete{
-  margin: 0;
-}
-
-#adminClientesPage #drFormBlock .ac-btn,
-#adminClientesPage #drFormUnblock .ac-btn,
-#adminClientesPage #drFormDeactivate .ac-btn,
-#adminClientesPage #drFormReactivate .ac-btn,
-#adminClientesPage #drFormDelete .ac-btn{
-  min-height: 36px;
-  border-radius: 12px;
-}
-
-/* =========================
-   Responsive
-   ========================= */
-@media (max-width: 640px){
-  #adminClientesPage .ac-drawer-panel{
-    width: 100%;
+    grid-template-columns:1fr !important;
   }
 
-  #adminClientesPage .ac-drawer-head{
-    padding: 14px 14px 12px;
+  .ac-drawer-actions{
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
   }
 
-  #adminClientesPage .ac-drawer-head .rs{
-    font-size: 16px;
+  .ac-drawer-actions .ac-btn,
+  .ac-drawer-foot > form .ac-btn{
+    width:100% !important;
   }
 
-  #adminClientesPage .ac-drawer-body{
-    padding: 12px 12px 14px;
+  .ac-modal.show,
+  .ac-modal[aria-hidden="false"]{
+    padding:10px !important;
   }
 
-  #adminClientesPage .ac-drawer-kpis{
-    grid-template-columns: 1fr;
+  .ac-modal-card{
+    width:calc(100vw - 16px) !important;
+    max-height:calc(100dvh - 16px) !important;
+    border-radius:18px !important;
   }
 
-  #adminClientesPage .ac-drawer-contact .grid{
-    grid-template-columns: 1fr;
+  .ac-form-actions{
+    flex-direction:column-reverse !important;
+    align-items:stretch !important;
   }
 
-  #adminClientesPage .ac-drawer-foot{
-    margin: 0 -12px -14px;
-    padding: 12px 12px 14px;
+  .ac-form-actions .ac-btn{
+    width:100% !important;
+  }
+}
+
+@media(max-width:430px){
+  .ac-drawer-actions{
+    grid-template-columns:1fr !important;
   }
 
-  #adminClientesPage .ac-drawer-actions .ac-btn{
-    flex: 1 1 calc(50% - 8px);
-    justify-content: center;
+  .ac-drawer-head .rfc,
+  .ac-drawer-head .rs,
+  .ac-drawer-head .meta{
+    max-width:300px !important;
   }
-} 
-
-/* =====================================================
-   Credenciales Modal — UI Upgrade
-   ===================================================== */
-
-#mCred_sub{
-  font-weight:900;
-  color:#334155;
-}
-
-/* grid datos */
-
-.ac-credgrid{
-  display:grid;
-  grid-template-columns:140px 1fr;
-  gap:10px 14px;
-  align-items:center;
-  font-size:13px;
-}
-
-.ac-credgrid .label{
-  font-weight:900;
-  color:#64748b;
-  text-transform:uppercase;
-  letter-spacing:.3px;
-  font-size:11px;
-}
-
-.ac-credgrid .value{
-  font-weight:900;
-  color:#0f172a;
-}
-
-/* OTP badge */
-
-#ac-otp,
-#mCred_otp{
-  background:#eef2ff;
-  color:#4338ca;
-  font-weight:900;
-  padding:4px 10px;
-  border-radius:8px;
-  display:inline-block;
-}
-
-/* password */
-
-#mCred_pass{
-  font-family:monospace;
-  letter-spacing:1px;
-}
-
-#mCred_pass.is-empty{
-  color:#94a3b8;
-}
-
-/* token */
-
-#mCred_tok{
-  font-family:monospace;
-  font-size:12px;
-  word-break:break-all;
-}
-
-/* textarea correos */
-
-#mCred_to{
-  border-radius:10px;
-  border:1px solid rgba(15,23,42,.12);
-  background:#f8fafc;
-  padding:10px;
-  font-size:13px;
-}
-
-/* acciones */
-
-#mCred_form_email_creds .ac-btn{
-  min-height:38px;
-  font-weight:900;
-}
-
-/* force buttons */
-
-#mCred_form_force_email .ac-btn,
-#mCred_form_force_phone .ac-btn{
-  background:#f1f5f9;
 }
