@@ -205,7 +205,6 @@
     <div class="ac360-titlebox">
       <div class="ac360-titleline">
         <h1>Clientes</h1>
-        <span class="ac360-count">{{ $total ?? '—' }}</span>
       </div>
       <div class="ac360-sub">Cuentas · admin.accounts</div>
     </div>
@@ -285,44 +284,53 @@
       ⌫
     </a>
   </div>
-
-  <div class="ac360-meta">
-    <span data-tip="Corte">▣ {{ now()->format('d/m/Y H:i') }}</span>
-    <span data-tip="Orden">↕ {{ $s }} · {{ $d }}</span>
-    <span data-tip="Por página">▤ {{ $pp }}/pág</span>
-    <a href="{{ route('admin.clientes.index') }}" data-tip="Restablecer">↻</a>
-  </div>
 </div>
 
 {{-- =========================
-    KPIs compactos
+    Resumen / KPIs en persiana
    ========================= --}}
-<div class="ac360-kpis">
-  <a href="{{ route('admin.clientes.index') }}"><strong>{{ $total ?? '—' }}</strong><span>Total</span></a>
-  <a href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}"><strong>{{ $cntPro }}</strong><span>PRO</span></a>
-  <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}"><strong>{{ $cntActive }}</strong><span>Activas</span></a>
-  <a href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}"><strong>{{ $cntBlocked }}</strong><span>Bloq.</span></a>
-  <details>
-    <summary><strong>Más</strong><span>FREE {{ $cntFree }} · Prueba {{ $cntTrial }} · Vencido {{ $cntOverdue }}</span></summary>
-    <div>
-      <a href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">FREE {{ $cntFree }}</a>
-      <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">Prueba {{ $cntTrial }}</a>
-      <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">Vencido {{ $cntOverdue }}</a>
-      <span>Mail {{ $verMail }}</span>
-      <span>Tel {{ $verPhone }}</span>
+<details class="ac360-section ac360-section--summary" id="summaryBox">
+  <summary class="ac360-section-summary">
+    <span>
+      <strong>Resumen</strong>
+      <small>Indicadores rápidos del módulo clientes</small>
+    </span>
+    <b aria-hidden="true">−</b>
+  </summary>
+
+  <div class="ac360-section-body">
+    <div class="ac360-kpis">
+      <a href="{{ route('admin.clientes.index') }}"><strong>{{ $total ?? '—' }}</strong><span>Total</span></a>
+      <a href="{{ request()->fullUrlWithQuery(['plan'=>'pro','page'=>null]) }}"><strong>{{ $cntPro }}</strong><span>PRO</span></a>
+      <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'active','page'=>null]) }}"><strong>{{ $cntActive }}</strong><span>Activas</span></a>
+      <a href="{{ request()->fullUrlWithQuery(['blocked'=>'1','page'=>null]) }}"><strong>{{ $cntBlocked }}</strong><span>Bloq.</span></a>
+      <details>
+        <summary><strong>Más</strong><span>FREE {{ $cntFree }} · Prueba {{ $cntTrial }} · Vencido {{ $cntOverdue }}</span></summary>
+        <div>
+          <a href="{{ request()->fullUrlWithQuery(['plan'=>'free','page'=>null]) }}">FREE {{ $cntFree }}</a>
+          <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'trial','page'=>null]) }}">Prueba {{ $cntTrial }}</a>
+          <a href="{{ request()->fullUrlWithQuery(['billing_status'=>'overdue','page'=>null]) }}">Vencido {{ $cntOverdue }}</a>
+          <span>Mail {{ $verMail }}</span>
+          <span>Tel {{ $verPhone }}</span>
+        </div>
+      </details>
     </div>
-  </details>
-</div>
+  </div>
+</details>
 
 {{-- =========================
     Filtros avanzados compactos
    ========================= --}}
-<details class="ac360-filters" id="filtersBox" {{ ($plan||$blocked||$billingStatus||$s!=='created_at'||$d!=='desc'||$pp!==25||$q) ? 'open' : '' }}>
-  <summary>
-    <span>⛃ Filtros</span>
-    <small>{{ $s }} · {{ $d }} · {{ $pp }}/pág</small>
+<details class="ac360-section ac360-section--filters ac360-filters" id="filtersBox">
+  <summary class="ac360-section-summary">
+    <span>
+      <strong>Filtros</strong>
+      <small>Búsqueda, plan, bloqueo, facturación y orden</small>
+    </span>
+    <b aria-hidden="true">+</b>
   </summary>
 
+  <div class="ac360-section-body">
   <form method="GET" id="filtersForm" class="ac360-filter-form">
     <input name="q" value="{{ $q }}" placeholder="Buscar...">
 
@@ -370,6 +378,7 @@
     <button class="ac360-mini primary" type="submit" data-tip="Aplicar">✓</button>
     <a class="ac360-mini" href="{{ route('admin.clientes.index') }}" data-tip="Reiniciar">↻</a>
   </form>
+  </div>
 </details>
 
     {{-- Alertas --}}
@@ -397,8 +406,18 @@
     </div>
 
     {{-- =========================
-        LISTA HYBRID (tabla desktop / card mobile)
-       ========================= --}}
+    Listado en persiana
+   ========================= --}}
+<details class="ac360-section ac360-section--list" id="listBox" open>
+  <summary class="ac360-section-summary">
+    <span>
+      <strong>Listado</strong>
+      <small>{{ $total ?? '—' }} clientes · Mostrando {{ method_exists($rows,'count') ? $rows->count() : count($rows) }}</small>
+    </span>
+    <b aria-hidden="true">−</b>
+  </summary>
+
+  <div class="ac360-section-body ac360-section-body--list">
     <div class="ac-list" role="region" aria-label="Listado de clientes">
 
       <div class="ac-list-head" aria-hidden="true">
@@ -614,6 +633,7 @@
             "rfc" => $RFC_FULL,
             "razon_social" => (string)($r->razon_social ?? ''),
             "created" => $created,
+            "registered_at" => !empty($r->created_at) ? \Illuminate\Support\Carbon::parse($r->created_at)->format('Y-m-d') : '',
             "email" => (string)($r->email ?? ''),
             "phone" => (string)($r->phone ?? $r->telefono ?? ''),
 
@@ -719,7 +739,7 @@
 
             <div class="ac-subline">
               <span>ID: <strong class="ac-mono">{{ $idStr ?: '—' }}</strong></span>
-              <span>Creado: <strong>{{ $created }}</strong></span>
+              <span>Registro: <strong>{{ $created }}</strong></span>
               <span>Edo: <strong>{{ $estadoCuenta ?: '—' }}</strong></span>
               @if($modoCobro)
                 <span>Modo: <strong>{{ strtoupper($modoCobro) }}</strong></span>
@@ -906,9 +926,12 @@
       @empty
         <div style="padding:16px">Sin resultados. Ajusta filtros o limpia búsqueda.</div>
       @endforelse
-    </div>
+        </div>
+  </div>
+</details>
 
-    {{-- Paginación --}}
+{{-- Paginación --}}
+
     <div class="ac-pager" aria-label="Paginación">
        <div class="info">
         @php
@@ -1216,6 +1239,12 @@
             <label>Próx. factura</label>
             <input class="ac-input" id="mEdit_next" name="next_invoice_date" type="date" value="">
             <div class="ac-hint">La fecha se usa para el siguiente statement.</div>
+          </div>
+
+          <div class="ac-field ac-col-4">
+            <label>Fecha de registro</label>
+            <input class="ac-input" id="mEdit_registered_at" name="registered_at" type="date" value="">
+            <div class="ac-hint">Fecha real en que entró el cliente.</div>
           </div>
 
           {{-- Monto --}}

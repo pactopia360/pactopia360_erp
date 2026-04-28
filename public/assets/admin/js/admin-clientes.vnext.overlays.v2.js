@@ -88,6 +88,66 @@
     }, true);
   }
 
+    function installRegisteredAtEditFill() {
+    document.addEventListener('click', function (e) {
+      const editBtn = e.target.closest('[data-drawer-action="edit"], #btnOpenEdit');
+      if (!editBtn) return;
+
+      setTimeout(function () {
+        const modal = document.getElementById('modalEdit');
+        const input = document.getElementById('mEdit_registered_at');
+
+        if (!modal || !input) return;
+
+        let data = {};
+
+        const drawer = document.getElementById('clientDrawer');
+        const activeRow = document.querySelector('.ac-row.is-active, .ac-row.ac-active, .ac-row[data-current="1"]');
+
+        let row = editBtn.closest('.ac-row') || activeRow;
+
+        if (!row && drawer) {
+          const currentId = (document.getElementById('mEdit_id')?.value || '').trim();
+
+          if (currentId !== '') {
+            row = Array.from(document.querySelectorAll('.ac-row[data-client]')).find(function (candidate) {
+              try {
+                const payload = JSON.parse(candidate.getAttribute('data-client') || '{}');
+                return String(payload.id || payload.key || '') === currentId;
+              } catch (_) {
+                return false;
+              }
+            });
+          }
+        }
+
+        if (row) {
+          try {
+            data = JSON.parse(row.getAttribute('data-client') || '{}');
+          } catch (_) {
+            data = {};
+          }
+        }
+
+        if (data.registered_at) {
+          input.value = String(data.registered_at).slice(0, 10);
+          return;
+        }
+
+        if (!input.value) {
+          const createdText = (data.created || '').trim();
+          const match = createdText.match(/^(\d{4}-\d{2}-\d{2})/);
+
+          if (match) {
+            input.value = match[1];
+          }
+        }
+      }, 120);
+    });
+  }
+
+  installRegisteredAtEditFill();
+
   installGlobalEscClose();
   observeOverlayState();
   installAdvDetailsScrollIntoView();

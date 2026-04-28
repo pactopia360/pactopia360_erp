@@ -838,6 +838,7 @@ class ClientesController extends \App\Http\Controllers\Controller
                 'billing_cycle'     => 'nullable|string|max:20',
                 'billing_status'    => 'nullable|string|max:30',
                 'next_invoice_date' => 'nullable|date',
+                'registered_at'     => 'nullable|date',
 
                 // ✅ checkbox actual UI (alias)
                 'blocked'           => 'nullable|boolean',
@@ -1028,6 +1029,20 @@ class ClientesController extends \App\Http\Controllers\Controller
             $payloadMirror['next_invoice_date'] = $payloadAdmin['next_invoice_date'];
         }
 
+        if (array_key_exists('registered_at', $data)) {
+            $registeredAt = $this->blankToNull($data['registered_at'] ?? null);
+
+            if ($registeredAt !== null) {
+                $registeredDate = \Illuminate\Support\Carbon::parse((string) $registeredAt)->startOfDay();
+
+                if ($this->hasCol($this->adminConn, 'accounts', 'created_at')) {
+                    $payloadAdmin['created_at'] = $registeredDate;
+                }
+
+                $payloadMirror['created_at'] = $registeredDate;
+            }
+        }
+
         if ($this->hasCol($this->adminConn, 'accounts', 'is_blocked') && $isBlocked !== null) {
             $payloadAdmin['is_blocked'] = (int) $isBlocked;
             $payloadMirror['is_blocked'] = (int) $isBlocked;
@@ -1187,6 +1202,14 @@ class ClientesController extends \App\Http\Controllers\Controller
 
                 if ($schemaCli->hasColumn('cuentas_cliente', 'next_invoice_date') && array_key_exists('next_invoice_date', $data)) {
                     $forceMirror['next_invoice_date'] = $this->blankToNull($data['next_invoice_date'] ?? null);
+                }
+
+                if ($schemaCli->hasColumn('cuentas_cliente', 'created_at') && array_key_exists('registered_at', $data)) {
+                    $registeredAt = $this->blankToNull($data['registered_at'] ?? null);
+
+                    if ($registeredAt !== null) {
+                        $forceMirror['created_at'] = \Illuminate\Support\Carbon::parse((string) $registeredAt)->startOfDay();
+                    }
                 }
 
                 if ($schemaCli->hasColumn('cuentas_cliente', 'telefono') && $phone !== null) {
@@ -4090,10 +4113,85 @@ class ClientesController extends \App\Http\Controllers\Controller
             ->update($payloadAdmin);
 
         if ($rfcReal !== '') {
-            $this->upsertClienteLegacy($rfcReal, ['razon_social' => (string) ($acc->razon_social ?? '')] + $payloadAdmin);
+    $this->upsertClienteLegacy($rfcReal, [
+        'razon_social' => (string) ($acc->razon_social ?? ''),
+        'activo'       => 0,
+    ] + $payloadAdmin);
+
+    try {
+        if ($this->legacyHasTable('clientes')) {
+            $legacyUpdate = [
+                'activo'     => 0,
+                'updated_at' => now(),
+            ];
+
+            if ($this->legacyHasColumn('clientes', 'deleted_at')) {
+                $legacyUpdate['deleted_at'] = now();
+            }
+
+            DB::connection($this->legacyConn)
+                ->table('clientes')
+                ->whereRaw('UPPER(rfc) = ?', [$rfcReal])
+                ->update($legacyUpdate);
+        }
+    } catch (\Throwable $e) {
+        Log::warning('clientes.destroy legacy soft delete failed: ' . $e->getMessage(), [
+            'account_id' => $accountId,
+            'rfc'        => $rfcReal,
+        ]);
+    }
+}
+
+$this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+
+try {
+    $schemaCli = Schema::connection('mysql_clientes');
+
+    if ($schemaCli->hasTable('cuentas_cliente')) {
+        $mirrorUpdate = [
+            'updated_at' => now(),
+        ];
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'activo')) {
+            $mirrorUpdate['activo'] = 0;
         }
 
-        $this->syncPlanToMirror($accountId, $payloadMirror + $payloadAdmin);
+        if ($schemaCli->hasColumn('cuentas_cliente', 'is_blocked')) {
+            $mirrorUpdate['is_blocked'] = 1;
+        }
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'estado_cuenta')) {
+            $mirrorUpdate['estado_cuenta'] = 'cancelada';
+        }
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'billing_status')) {
+            $mirrorUpdate['billing_status'] = 'cancelled';
+        }
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'deleted_at')) {
+            $mirrorUpdate['deleted_at'] = now();
+        }
+
+        $q = DB::connection('mysql_clientes')->table('cuentas_cliente');
+
+        if ($schemaCli->hasColumn('cuentas_cliente', 'admin_account_id')) {
+            $q->where('admin_account_id', (int) $accountId);
+        } elseif ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc')) {
+            $q->whereRaw('UPPER(rfc) = ?', [$rfcReal]);
+        } elseif ($rfcReal !== '' && $schemaCli->hasColumn('cuentas_cliente', 'rfc_padre')) {
+            $q->whereRaw('UPPER(rfc_padre) = ?', [$rfcReal]);
+        } else {
+            $q->whereRaw('1 = 0');
+        }
+
+        $q->update($mirrorUpdate);
+    }
+} catch (\Throwable $e) {
+    Log::warning('clientes.destroy mirror soft delete failed: ' . $e->getMessage(), [
+        'account_id' => $accountId,
+        'rfc'        => $rfcReal,
+    ]);
+}
 
         return back()->with('ok', $okMessage);
     }

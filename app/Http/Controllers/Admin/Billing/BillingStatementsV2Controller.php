@@ -1142,9 +1142,9 @@ final class BillingStatementsV2Controller extends Controller
         }
 
         $estadoCuenta = strtolower(trim((string) ($cliente->estado_cuenta ?? '')));
-        if (in_array($estadoCuenta, ['suspendida', 'bloqueada'], true)) {
-            return false;
-        }
+        if (in_array($estadoCuenta, ['suspendida', 'bloqueada', 'cancelada', 'cancelled', 'deleted', 'eliminada'], true)) {
+                return false;
+            }
 
         // 2) excluir cuentas anuales que todavía no les toca facturar
         $billingMode = strtolower(trim((string) ($cliente->modo_cobro ?? '')));

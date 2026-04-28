@@ -1,445 +1,318 @@
-/* public/assets/admin/css/admin-clientes.vnext.list.css
-   Admin Clientes vNext — List (head/rows/badges/menu) — CLEAN v2
-   ✅ Fix: NO recortar dropdown ⋯ (overflow visible)
-   ✅ Mejora: menos “Excel”, más limpio, más premium
-   ✅ Mejora: densidad real + tipografía menos agresiva
-   ⚠️ Nota: KPIs se estilizan en layout.css (no aquí) para evitar colisiones
-*/
+/* =========================================================
+   PACTOPIA360 · Admin Clientes
+   Listado tipo "Estados de cuenta"
+   Responsive sin desbordes
+========================================================= */
 
-/* =========================
-   List container
-   ========================= */
 .ac-list{
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius);
-  background: #fff;
-
-  /* ✅ IMPORTANT: si está hidden, corta el menú ⋯ */
-  overflow: visible;
-
-  box-shadow: var(--ac-shadow-sm, 0 6px 18px rgba(15,23,42,.08));
+  width:100%;
+  max-width:100%;
+  overflow:hidden;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:22px;
+  background:#fff;
+  box-shadow:0 18px 42px rgba(15,23,42,.06);
 }
 
-/* =========================
-   Head (más limpio + menos pesado)
-   ========================= */
 .ac-list-head{
   display:grid;
-  /* Mantengo 6 cols para no romper markup, pero más balanceado */
-  grid-template-columns: 2.2fr 2.1fr 1.0fr;
-  gap:0;
-
-  padding: 10px 14px;
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--ac-muted, rgba(15,23,42,.58));
-
-  background: rgba(248,250,252,.92);
-  border-bottom: 1px solid var(--ac-border);
-
-  position: relative;
-  top: auto;
-  z-index: auto;
-
-  border-top-left-radius: var(--ac-radius);
-  border-top-right-radius: var(--ac-radius);
+  grid-template-columns:minmax(230px,1.05fr) minmax(520px,2.15fr) minmax(120px,.45fr);
+  gap:18px;
+  align-items:center;
+  padding:16px 18px;
+  border-bottom:1px solid rgba(15,23,42,.08);
+  background:#fbfdff;
+  color:#7b8aa3;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.08em;
+  text-transform:uppercase;
 }
 
-.ac-list-head .actions{ text-align:right; }
+.ac-list-head .actions{
+  text-align:right;
+}
 
-/* =========================
-   Rows (más compactas + hover sutil)
-   ========================= */
 .ac-row{
   display:grid;
-  grid-template-columns: 2.2fr 2.1fr 1.0fr;
-  gap:0;
-
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(15,23,42,.06);
-  align-items: start;
-
+  grid-template-columns:minmax(230px,1.05fr) minmax(520px,2.15fr) minmax(120px,.45fr);
+  gap:18px;
+  align-items:center;
+  min-width:0;
+  padding:22px 18px;
+  border-bottom:1px solid rgba(15,23,42,.075);
   background:#fff;
 }
 
-.ac-row:hover{
-  background: rgba(2,6,23,.018);
-}
-
 .ac-row:last-child{
-  border-bottom: 0;
-  border-bottom-left-radius: var(--ac-radius);
-  border-bottom-right-radius: var(--ac-radius);
+  border-bottom:0;
 }
 
-.cell{ min-width:0; }
+.ac-row:hover{
+  background:#fbfdff;
+}
+
+.cell{
+  min-width:0;
+}
+
+.cell.client,
+.cell.billing{
+  min-width:0;
+}
 
 .cell.actions{
   display:flex;
   justify-content:flex-end;
+  align-items:center;
   gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
+  min-width:0;
+  white-space:nowrap;
 }
 
-/* =========================
-   Text blocks (menos agresivo)
-   ========================= */
 .ac-titleline{
-  display:flex;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
   align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-
-/* RFC: fuerte pero no “gritado” */
-.ac-rfc{
-  font-weight: 850;
-  font-size: 12.5px;
-  letter-spacing: .015em;
-}
-
-/* Razón social: principal real */
-.ac-rs{
-  font-weight: 780;
-  color: rgba(15,23,42,.86);
-  margin-top: 3px;
-  line-height: 1.22;
-}
-
-/* Subline: más discreta */
-.ac-subline{
-  font-size: 11.5px;
-  color: var(--ac-muted, rgba(15,23,42,.58));
-  margin-top: 6px;
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
-/* =========================
-   Facturación (col 2)
-   ========================= */
-.cell.billing{ min-width:0; }
-
-/* layout interno: 3 items (ciclo / próxima / monto) */
-.ac-billline{
-  display:grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.ac-billline .it{
-  border: 1px solid rgba(15,23,42,.08);
-  border-radius: 12px;
-  padding: 8px 10px;
-  background: rgba(248,250,252,.7);
-}
-
-.ac-billline .k{
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--ac-muted, rgba(15,23,42,.58));
-  letter-spacing: .02em;
-}
-
-.ac-billline .v{
-  margin-top: 4px;
-  font-weight: 850;
-  color: rgba(15,23,42,.88);
-}
-
-.ac-billline .mut{
-  opacity:.72;
-  font-weight: 750;
-}
-
-/* Ajuste: badges no se amontonan feo */
-.cell.billing .ac-badges{ margin-top: 0; }
-
-/* Mobile: el billline se apila */
-@media (max-width: 980px){
-  .ac-billline{ grid-template-columns: 1fr; }
-}
-
-/* KV: más compacto */
-.ac-kv{
-  display:grid;
-  grid-template-columns: 72px 1fr;
-  gap: 5px 10px;
-  font-size: 11.5px;
-}
-
-.ac-kv .k{
-  color: var(--ac-muted, rgba(15,23,42,.58));
-  font-weight: 750;
-}
-
-.ac-kv .v{
-  font-weight: 780;
   min-width:0;
 }
 
-/* Ellipsis (seguridad) */
+.ac-rfc,
+.ac-rs,
 .ac-ellipsis{
-  display:inline-block;
+  min-width:0;
   max-width:100%;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  vertical-align:bottom;
 }
 
-/* =========================
-   Badges (más finos)
-   ========================= */
+.ac-rfc{
+  color:#0f172a;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.025em;
+}
+
+.ac-rs{
+  margin-top:8px;
+  color:#0f172a;
+  font-size:14px;
+  font-weight:900;
+  line-height:1.25;
+}
+
+.ac-subline{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 12px;
+  margin-top:8px;
+  color:#64748b;
+  font-size:11.5px;
+  font-weight:800;
+  line-height:1.35;
+}
+
+.ac-subline span{
+  min-width:0;
+}
+
+.ac-subline strong{
+  color:#334155;
+  font-weight:900;
+}
+
+.ac-badges{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  align-items:center;
+  margin-bottom:9px;
+  min-width:0;
+}
+
 .badge{
   display:inline-flex;
   align-items:center;
+  justify-content:center;
   gap:7px;
-
-  /* menos borde, más suave */
-  border: 1px solid rgba(15,23,42,.10);
-  border-radius: 999px;
-  padding: 5px 9px;
-
-  font-weight: 800;
-  font-size: 11.5px;
-  line-height: 1;
-
-  /* más “chip” */
-  background: rgba(248,250,252,.85);
-  white-space: nowrap;
+  max-width:100%;
+  padding:5px 10px;
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:999px;
+  background:#f8fafc;
+  color:#334155;
+  font-size:11px;
+  font-weight:900;
+  line-height:1;
+  white-space:nowrap;
 }
 
 .badge .dot{
   width:7px;
   height:7px;
-  border-radius:50%;
-  background: rgba(148,163,184,.95);
+  flex:0 0 7px;
+  border-radius:999px;
+  background:#94a3b8;
 }
 
 .badge.ok{
-  border-color: rgba(16,185,129,.22);
-  background: rgba(16,185,129,.06);
+  border-color:rgba(16,185,129,.25);
+  background:rgba(16,185,129,.08);
+  color:#047857;
 }
-.badge.ok .dot{ background: rgba(16,185,129,.95); }
+
+.badge.ok .dot{
+  background:#10b981;
+}
 
 .badge.warn{
-  border-color: rgba(245,158,11,.22);
-  background: rgba(245,158,11,.065);
+  border-color:rgba(245,158,11,.25);
+  background:rgba(245,158,11,.08);
+  color:#92400e;
 }
-.badge.warn .dot{ background: rgba(245,158,11,.95); }
+
+.badge.warn .dot{
+  background:#f59e0b;
+}
 
 .badge.bad{
-  border-color: rgba(239,68,68,.22);
-  background: rgba(239,68,68,.065);
+  border-color:rgba(239,68,68,.25);
+  background:rgba(239,68,68,.08);
+  color:#b91c1c;
 }
-.badge.bad .dot{ background: rgba(239,68,68,.95); }
+
+.badge.bad .dot{
+  background:#ef4444;
+}
 
 .badge.primary{
-  border-color: rgba(109,40,217,.22);
-  background: rgba(109,40,217,.075);
-}
-.badge.primary .dot{ background: rgba(109,40,217,.95); }
-
-.badge.neutral{ opacity:.92; }
-
-.ac-badges{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
+  border-color:rgba(124,58,237,.25);
+  background:rgba(124,58,237,.09);
+  color:#5b21b6;
 }
 
-/* =========================
-   Actions menu ⋯ (más pro)
-   ========================= */
+.badge.primary .dot{
+  background:#7c3aed;
+}
+
+.ac-billline{
+  display:grid;
+  grid-template-columns:minmax(120px,1fr) minmax(130px,1fr) minmax(170px,1.2fr);
+  gap:10px;
+  min-width:0;
+}
+
+.ac-billline .it{
+  min-width:0;
+  padding:10px 12px;
+  border:1px solid rgba(15,23,42,.09);
+  border-radius:13px;
+  background:#f8fafc;
+}
+
+.ac-billline .k{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#7b8aa3;
+  font-size:10.5px;
+  font-weight:900;
+}
+
+.ac-billline .v{
+  margin-top:5px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#0f172a;
+  font-size:13px;
+  font-weight:900;
+}
+
+.ac-billline .mut{
+  color:#64748b;
+  font-weight:800;
+}
+
+.ac-icon-btn{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:12px;
+  background:#fff;
+  color:#0f172a;
+  box-shadow:0 8px 20px rgba(15,23,42,.05);
+  cursor:pointer;
+}
+
+.ac-icon-btn.primary{
+  border-color:rgba(124,58,237,.25);
+  background:linear-gradient(135deg,#7c3aed,#2563eb);
+  color:#fff;
+}
+
+.ac-actions-inline{
+  display:inline-flex;
+  margin:0;
+}
+
 .ac-menu{
   position:relative;
 }
 
-/* Panel flotante */
 .ac-menu-panel{
   position:absolute;
+  top:42px;
   right:0;
-  top:38px;
-
-  min-width: 210px;
-  background:#fff;
-  border:1px solid rgba(15,23,42,.12);
-  border-radius: 14px;
-
-  box-shadow: 0 18px 40px rgba(2,6,23,.10);
-  padding: 6px;
-
+  z-index:80;
   display:none;
-  z-index: 140;
+  min-width:220px;
+  padding:8px;
+  border:1px solid rgba(15,23,42,.12);
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 22px 50px rgba(15,23,42,.16);
 }
 
-.ac-menu.open .ac-menu-panel{ display:block; }
+.ac-menu.open .ac-menu-panel{
+  display:block;
+}
 
-.ac-menu a,
-.ac-menu button{
+.ac-menu-panel button,
+.ac-menu-panel .ac-btn{
   width:100%;
+  display:flex;
+  padding:10px 11px;
+  border:0;
+  border-radius:12px;
+  background:transparent;
+  color:#0f172a;
+  font-size:13px;
+  font-weight:850;
   text-align:left;
-
-  display:flex;
-  gap:10px;
-  align-items:center;
-
-  padding: 9px 10px;
-  border-radius: 12px;
-
-  border: 0;
-  background: transparent;
-
-  font-weight: 780;
-  font-size: 13px;
   cursor:pointer;
-
-  color: rgba(15,23,42,.86);
 }
 
-.ac-menu a:hover,
-.ac-menu button:hover{
-  background: rgba(2,6,23,.04);
+.ac-menu-panel button:hover,
+.ac-menu-panel .ac-btn:hover{
+  background:#f1f5f9;
 }
 
-.ac-menu button[disabled]{
-  opacity:.45;
-  cursor:not-allowed;
+.ac-menu-panel .danger{
+  color:#b91c1c;
 }
 
-.ac-menu .danger{
-  color: rgba(185,28,28,.92);
+.ac-menu-sep{
+  height:1px;
+  margin:6px 4px;
+  background:rgba(15,23,42,.08);
 }
-.ac-menu .danger:hover{
-  background: rgba(239,68,68,.085);
-}
-
-/* =========================
-   Mobile = card layout (más limpio)
-   ========================= */
-@media (max-width: 980px){
-  .ac-list-head{ display:none; }
-
-  .ac-row{
-    grid-template-columns: 1fr;
-    gap: 12px;
-
-    padding: 14px;
-    border-bottom: 10px solid rgba(2,6,23,.03);
-    border-radius: var(--ac-radius);
-    margin-bottom: 10px;
-
-    /* leve “card feel” sin recargar */
-    box-shadow: 0 10px 24px rgba(2,6,23,.04);
-  }
-
-  .ac-row:last-child{
-    border-bottom: 10px solid rgba(2,6,23,.03);
-  }
-
-  .cell.actions{
-    justify-content:flex-start;
-  }
-
-  /* Menú: que no se vaya fuera en mobile */
-  .ac-menu-panel{
-    right: 0;
-    left: auto;
-    top: 44px;
-    min-width: 200px;
-  }
-}
-
-/* =========================
-   Drawer: acciones avanzadas (sí aplica aquí)
-   ========================= */
-.ac-adv{
-  margin-top: 10px;
-  border: 1px dashed rgba(15,23,42,.16);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-html.theme-dark .ac-adv{ border-color: rgba(255,255,255,.14); }
-
-.ac-adv__summary{
-  list-style:none;
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 10px;
-}
-
-.ac-adv__summary::-webkit-details-marker{ display:none; }
-
-/* =========================
-   KPI bar (ultra-compact)
-   ========================= */
-.ac-kpi-bar{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  align-items:center;
-  margin: 10px 0 6px;
-}
-
-.ac-kpi-bar .ac-pill.kpi{
-  display:inline-flex;
-  align-items:center;
-  gap:8px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--ac-border);
-  background: rgba(248,250,252,.75);
-  text-decoration:none;
-  color: inherit;
-  font-weight: 850;
-  line-height: 1;
-}
-
-.ac-kpi-bar .ac-pill.kpi strong{ font-weight: 950; }
-
-.ac-kpi-bar .ac-pill.kpi:hover{
-  background: rgba(2,6,23,.03);
-}
-
-.ac-kpi-more{
-  margin:0;
-}
-
-.ac-kpi-more > summary{
-  cursor:pointer;
-  list-style:none;
-}
-
-.ac-kpi-more > summary::-webkit-details-marker{ display:none; }
-
-.ac-kpi-more__row{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  margin-top: 8px;
-}
-
-.ac-kpi-bar .ac-pill.kpi.ghost{
-  opacity:.85;
-  background: transparent;
-}
-
-@media (max-width: 980px){
-  .ac-kpi-bar{ gap:8px; }
-  .ac-kpi-bar .ac-pill.kpi{ padding: 7px 9px; }
-}
-
-/* =========================
-   Pager / Laravel pagination fix
-   ========================= */
 
 .ac-pager{
   display:flex;
@@ -447,109 +320,131 @@ html.theme-dark .ac-adv{ border-color: rgba(255,255,255,.14); }
   justify-content:space-between;
   gap:12px;
   flex-wrap:wrap;
-  padding: 12px 14px;
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius);
+  margin-top:14px;
+  padding:13px 15px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:18px;
   background:#fff;
-  box-shadow: var(--ac-shadow-sm, 0 6px 18px rgba(15,23,42,.08));
+  box-shadow:0 10px 28px rgba(15,23,42,.05);
 }
 
 .ac-pager .info{
-  font-size: 12px;
-  color: var(--ac-muted, rgba(15,23,42,.62));
-  font-weight: 700;
+  color:#64748b;
+  font-size:12px;
+  font-weight:800;
 }
 
-.ac-pager .links{
-  margin-left:auto;
-}
+/* ================= RESPONSIVE ================= */
 
-.ac-pager .links nav{
-  display:block;
-}
-
-.ac-pager .links > *{
-  margin:0;
-}
-
-.ac-pager .links .hidden{
-  display:none !important;
-}
-
-.ac-pager .links svg{
-  width: 14px !important;
-  height: 14px !important;
-  min-width: 14px !important;
-  min-height: 14px !important;
-  stroke-width: 1.8;
-}
-
-.ac-pager .links [aria-label="pagination"]{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  flex-wrap:wrap;
-}
-
-.ac-pager .links [aria-label="pagination"] > div:first-child{
-  display:none !important; /* “Showing x to y...” duplicado */
-}
-
-.ac-pager .links [aria-label="pagination"] > div:last-child{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  flex-wrap:wrap;
-}
-
-.ac-pager .links a,
-.ac-pager .links span{
-  display:inline-flex !important;
-  align-items:center;
-  justify-content:center;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(15,23,42,.10);
-  background:#fff;
-  font-size: 12px;
-  font-weight: 800;
-  line-height:1;
-  text-decoration:none;
-  box-shadow:none !important;
-}
-
-.ac-pager .links a{
-  color: rgba(15,23,42,.86);
-}
-
-.ac-pager .links a:hover{
-  background: rgba(2,6,23,.04);
-}
-
-.ac-pager .links span[aria-current="page"]{
-  background: rgba(109,40,217,.10);
-  border-color: rgba(109,40,217,.22);
-  color: #4c1d95;
-}
-
-.ac-pager .links span[aria-disabled="true"]{
-  opacity:.5;
-  cursor:not-allowed;
-}
-
-@media (max-width: 980px){
-  .ac-pager{
-    align-items:flex-start;
+@media (max-width:1380px){
+  .ac-list-head,
+  .ac-row{
+    grid-template-columns:minmax(220px,.95fr) minmax(460px,1.9fr) minmax(112px,.38fr);
+    gap:14px;
   }
 
-  .ac-pager .links{
-    width:100%;
-    margin-left:0;
+  .ac-billline{
+    grid-template-columns:minmax(110px,1fr) minmax(120px,1fr) minmax(150px,1.15fr);
+  }
+}
+
+@media (max-width:1180px){
+  .ac-list-head,
+  .ac-row{
+    grid-template-columns:minmax(210px,.9fr) minmax(390px,1.65fr) minmax(105px,.35fr);
+    gap:12px;
+    padding-left:14px;
+    padding-right:14px;
   }
 
-  .ac-pager .links [aria-label="pagination"] > div:last-child{
-    width:100%;
+  .ac-billline{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+
+  .badge{
+    padding:5px 8px;
+    font-size:10.5px;
+  }
+
+  .ac-icon-btn{
+    width:32px;
+    height:32px;
+    flex-basis:32px;
+  }
+}
+
+@media (max-width:980px){
+  .ac-list{
+    border:0;
+    background:transparent;
+    box-shadow:none;
+    overflow:visible;
+  }
+
+  .ac-list-head{
+    display:none;
+  }
+
+  .ac-row{
+    grid-template-columns:1fr;
+    gap:13px;
+    margin-bottom:12px;
+    padding:16px;
+    border:1px solid rgba(15,23,42,.08);
+    border-radius:20px;
+    box-shadow:0 14px 34px rgba(15,23,42,.06);
+  }
+
+  .ac-row:last-child{
+    border:1px solid rgba(15,23,42,.08);
+  }
+
+  .cell.actions{
+    justify-content:flex-start;
+    flex-wrap:wrap;
+  }
+
+  .ac-menu-panel{
+    left:0;
+    right:auto;
+  }
+}
+
+@media (max-width:700px){
+  .ac-row{
+    padding:14px;
+  }
+
+  .ac-titleline{
+    grid-template-columns:1fr;
+  }
+
+  .ac-rs{
+    white-space:normal;
+  }
+
+  .ac-billline{
+    grid-template-columns:1fr;
+  }
+
+  .cell.actions{
+    display:grid;
+    grid-template-columns:repeat(5,34px);
+    justify-content:start;
+  }
+}
+
+@media (max-width:420px){
+  .cell.actions{
+    grid-template-columns:repeat(4,34px);
+  }
+
+  .ac-subline{
+    display:block;
+  }
+
+  .ac-subline span{
+    display:block;
+    margin-top:4px;
   }
 }
