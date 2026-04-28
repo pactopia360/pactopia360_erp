@@ -678,6 +678,9 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/reportes', 'reportes')->name('reportes');
             Route::get('/recursos-humanos', 'rh')->name('rh');
             Route::get('/timbres-hits', 'timbres')->name('timbres');
+
+            Route::post('/timbres-hits/facturotopia/test', 'facturotopiaTest')
+                ->name('timbres.facturotopia.test');
         });
     });
 

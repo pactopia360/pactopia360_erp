@@ -1246,41 +1246,136 @@ public function destroy(int $cfdi)
         ->with('ok', 'Borrador eliminado correctamente.');
 }
 
-public function timbrar(int $cfdi)
-{
-    $item = $this->findOwnedCfdi($cfdi);
+    public function timbrar(int $cfdi)
+    {
+        $item = $this->findOwnedCfdi($cfdi);
 
-    if (strtolower((string) $item->estatus) !== 'borrador') {
-        return back()->withErrors([
-            'cfdi' => 'Este CFDI ya no está en borrador.',
-        ]);
+        if (strtolower((string) $item->estatus) !== 'borrador') {
+            return back()->withErrors([
+                'cfdi' => 'Este CFDI ya no está en borrador.',
+            ]);
+        }
+
+        $cuenta = $this->currentCuenta();
+
+        if (! $cuenta || empty($cuenta->id)) {
+            return back()->withErrors([
+                'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
+            ]);
+        }
+
+        $conn = $this->cfdiConn();
+        $table = (new Cfdi)->getTable();
+
+        try {
+            DB::connection($conn)->beginTransaction();
+
+            $adminAccountId = null;
+
+            try {
+                $cuentaCliente = DB::connection('mysql_clientes')
+                    ->table('cuentas_cliente')
+                    ->where('id', (string) $cuenta->id)
+                    ->first();
+
+                $adminAccountId = $cuentaCliente->admin_account_id ?? null;
+            } catch (\Throwable $e) {
+                $adminAccountId = null;
+            }
+
+            if (empty($adminAccountId)) {
+                DB::connection($conn)->rollBack();
+
+                return back()->withErrors([
+                    'timbres' => 'No se pudo resolver la cuenta admin para consumir timbres.',
+                ]);
+            }
+
+            $adminAccount = DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('id', (int) $adminAccountId)
+                ->lockForUpdate()
+                ->first(['id', 'meta']);
+
+            if (! $adminAccount) {
+                DB::connection($conn)->rollBack();
+
+                return back()->withErrors([
+                    'timbres' => 'La cuenta admin no existe para validar timbres.',
+                ]);
+            }
+
+            $meta = [];
+            if (! empty($adminAccount->meta)) {
+                $decoded = json_decode((string) $adminAccount->meta, true);
+                $meta = is_array($decoded) ? $decoded : [];
+            }
+
+            $asignados = (int) data_get($meta, 'facturotopia.timbres.asignados', 0);
+            $consumidos = (int) data_get($meta, 'facturotopia.timbres.consumidos', 0);
+            $disponibles = max(0, $asignados - $consumidos);
+
+            if ($disponibles <= 0) {
+                DB::connection($conn)->rollBack();
+
+                return back()->withErrors([
+                    'timbres' => 'No hay timbres disponibles para timbrar este CFDI.',
+                ]);
+            }
+
+            $uuid = (string) $item->uuid;
+
+            $payload = [
+                'estatus' => 'timbrado',
+                'updated_at' => now(),
+            ];
+
+            if ($this->hasColumn($table, 'uuid', $conn) && str_starts_with($uuid, 'BORRADOR-')) {
+                $uuid = strtoupper((string) Str::uuid());
+                $payload['uuid'] = $uuid;
+            }
+
+            if ($this->hasColumn($table, 'fecha_timbrado', $conn)) {
+                $payload['fecha_timbrado'] = now();
+            }
+
+            DB::connection($conn)
+                ->table($table)
+                ->where('id', $item->id)
+                ->update($payload);
+
+            data_set($meta, 'facturotopia.timbres.consumidos', $consumidos + 1);
+            data_set($meta, 'facturotopia.timbres.ultimo_consumo_at', now()->toDateTimeString());
+            data_set($meta, 'facturotopia.timbres.ultimo_uuid', $uuid);
+            data_set($meta, 'facturotopia.timbres.ultimo_cfdi_id', $item->id);
+
+            DB::connection('mysql_admin')
+                ->table('accounts')
+                ->where('id', (int) $adminAccount->id)
+                ->update([
+                    'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'updated_at' => now(),
+                ]);
+
+            DB::connection($conn)->commit();
+
+            return redirect()
+                ->route('cliente.facturacion.index')
+                ->with('ok', 'CFDI timbrado internamente y timbre consumido correctamente.');
+        } catch (\Throwable $e) {
+            try {
+                DB::connection($conn)->rollBack();
+            } catch (\Throwable $rollbackError) {
+                report($rollbackError);
+            }
+
+            report($e);
+
+            return back()->withErrors([
+                'timbrado' => 'No se pudo timbrar el CFDI: ' . $e->getMessage(),
+            ]);
+        }
     }
-
-    $conn = $this->cfdiConn();
-    $table = (new Cfdi)->getTable();
-
-    $payload = [
-        'estatus' => 'timbrado',
-        'updated_at' => now(),
-    ];
-
-    if ($this->hasColumn($table, 'uuid', $conn) && str_starts_with((string) $item->uuid, 'BORRADOR-')) {
-        $payload['uuid'] = strtoupper((string) Str::uuid());
-    }
-
-    if ($this->hasColumn($table, 'fecha_timbrado', $conn)) {
-        $payload['fecha_timbrado'] = now();
-    }
-
-    DB::connection($conn)
-        ->table($table)
-        ->where('id', $item->id)
-        ->update($payload);
-
-    return redirect()
-        ->route('cliente.facturacion.index')
-        ->with('ok', 'CFDI marcado como timbrado internamente. Falta conectar PAC/XML real.');
-}
 
     public function receptorShow(int $receptor): JsonResponse
     {

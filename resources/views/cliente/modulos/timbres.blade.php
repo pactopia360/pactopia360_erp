@@ -4,555 +4,605 @@
 
 @section('content')
 @php
-    $rtFact = Route::has('cliente.facturacion.index')
-        ? route('cliente.facturacion.index')
-        : (Route::has('cliente.facturacion') ? route('cliente.facturacion') : '#');
+    $data = $timbresData ?? [];
 
-    $rtRh = Route::has('cliente.modulos.rh') ? route('cliente.modulos.rh') : '#';
-    $rtReportes = Route::has('cliente.modulos.reportes') ? route('cliente.modulos.reportes') : '#';
-    $rtSat = Route::has('cliente.sat.index') ? route('cliente.sat.index') : '#';
+    $saldo = $data['saldo'] ?? [];
+    $facturotopia = $data['facturotopia'] ?? [];
+    $periodo = $data['periodo'] ?? [];
+    $kpis = $data['kpis'] ?? [];
+    $series = $data['series'] ?? ['labels' => [], 'consumo' => [], 'monto' => []];
+    $consumoPorRfc = collect($data['consumoPorRfc'] ?? []);
+    $ultimosCfdi = collect($data['ultimosCfdi'] ?? []);
+    $alertasIa = collect($data['alertasIa'] ?? []);
 
-    $kpis = [
-        ['label' => 'Hits disponibles', 'value' => '0', 'hint' => 'Saldo actual de timbrado'],
-        ['label' => 'Consumidos', 'value' => '0', 'hint' => 'Uso acumulado'],
-        ['label' => 'Compras', 'value' => '0', 'hint' => 'Órdenes registradas'],
-        ['label' => 'CFDI emitidos/cancelados', 'value' => '0', 'hint' => 'Cada uno consume 1 hit'],
-    ];
+    $rtFact = Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
+    $rtExportCfdi = Route::has('cliente.facturacion.export') ? route('cliente.facturacion.export') : '#';
+
+    $env = $facturotopia['env'] ?? 'sandbox';
+
+    $timbresAsignados = (int) ($saldo['timbres_asignados'] ?? 0);
+    $timbresConsumidos = (int) ($saldo['timbres_consumidos'] ?? 0);
+    $timbresDisponibles = (int) ($saldo['timbres_disponibles'] ?? 0);
+    $usoPct = (float) ($saldo['uso_pct'] ?? 0);
+
+    $hitsAsignados = (int) ($saldo['hits_asignados'] ?? 0);
+    $hitsConsumidos = (int) ($saldo['hits_consumidos'] ?? 0);
+    $hitsDisponibles = (int) ($saldo['hits_disponibles'] ?? 0);
+
+    $sandboxKey = (string) ($facturotopia['sandbox_api_key'] ?? '');
+    $productionKey = (string) ($facturotopia['production_api_key'] ?? '');
+    $pacPassword = (string) ($facturotopia['password'] ?? '');
+
+    $mask = function (?string $value) {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return 'No configurada';
+        }
+
+        if (mb_strlen($value) <= 12) {
+            return str_repeat('•', max(6, mb_strlen($value)));
+        }
+
+        return mb_substr($value, 0, 6) . str_repeat('•', 18) . mb_substr($value, -6);
+    };
+
+    $money = fn ($amount) => '$' . number_format((float) $amount, 2, '.', ',');
+
+    $envLabel = $env === 'production' ? 'Producción' : 'Pruebas';
+    $envClass = $env === 'production' ? 'production' : 'sandbox';
+
+    $usageStatus = $timbresDisponibles <= 0 ? 'critical' : ($usoPct >= 80 ? 'warning' : 'ok');
 
     $sections = [
         [
-            'title' => 'Saldo y consumo',
-            'icon' => 'local_activity',
-            'desc' => 'Visualización del saldo actual de hits/timbres, histórico de consumo y comportamiento general del timbrado.',
-            'items' => ['Saldo', 'Consumo', 'Histórico', 'Timbrado', 'Cancelaciones', 'Bitácora'],
+            'id' => 'overview',
+            'title' => 'Resumen operativo',
+            'icon' => 'dashboard',
+            'open' => true,
         ],
         [
-            'title' => 'Compra de timbres',
-            'icon' => 'shopping_cart',
-            'desc' => 'Cotización y compra de paquetes de timbres por rango, contemplando precios base y precios especiales.',
-            'items' => ['Paquetes', 'Rangos', 'Cotización', 'Precio especial', 'Pago', 'Seguimiento'],
+            'id' => 'reports',
+            'title' => 'Reportes y filtros',
+            'icon' => 'filter_alt',
+            'open' => true,
         ],
         [
-            'title' => 'Facturotopia',
+            'id' => 'pac',
+            'title' => 'PAC / Facturotopia',
             'icon' => 'hub',
-            'desc' => 'Configuración futura de conexión con Facturotopia para API key pruebas/producción y estatus del emisor.',
-            'items' => ['Sandbox', 'Producción', 'API keys', 'Emisor', 'Configuración', 'Sincronización'],
+            'open' => false,
         ],
         [
-            'title' => 'Facturación conectada',
-            'icon' => 'receipt_long',
-            'desc' => 'Los CFDI de facturación consumirán hits al emitir o cancelar comprobantes desde Pactopia360.',
-            'items' => ['CFDI', 'Emisión', 'Cancelación', 'Consumo', 'Relación', 'Control'],
-        ],
-        [
-            'title' => 'RH y nómina conectados',
-            'icon' => 'badge',
-            'desc' => 'El CFDI de nómina dentro de RH también consumirá hits al timbrar o cancelar recibos.',
-            'items' => ['RH', 'Nómina', 'CFDI nómina', 'Timbrado', 'Cancelación', 'Seguimiento'],
-        ],
-        [
-            'title' => 'Dashboard y análisis',
-            'icon' => 'bar_chart',
-            'desc' => 'Vista de compras, consumos, tendencias, alertas de bajo saldo y comportamiento de uso del cliente.',
-            'items' => ['Compras', 'Consumos', 'Tendencias', 'Alertas', 'Comparativos', 'Análisis'],
-        ],
-    ];
-
-    $aiCards = [
-        [
-            'title' => 'Auditor IA de consumo',
-            'desc' => 'Detecta consumos atípicos, caídas bruscas de saldo y patrones raros de emisión o cancelación.',
-        ],
-        [
-            'title' => 'Proyección de compra',
-            'desc' => 'Estima cuándo el cliente podría quedarse sin hits según su ritmo de uso.',
-        ],
-        [
-            'title' => 'Radar de oportunidad',
-            'desc' => 'Sugiere el paquete más conveniente según consumo histórico y comportamiento comercial.',
+            'id' => 'ia',
+            'title' => 'IA fiscal',
+            'icon' => 'psychology',
+            'open' => false,
         ],
     ];
 @endphp
 
-<style>
-    .tim-shell{
-        --tim-card:#ffffff;
-        --tim-line:#e2e8f0;
-        --tim-text:#0f172a;
-        --tim-muted:#64748b;
-        --tim-primary:#0f172a;
-        --tim-soft:#eef2ff;
-        --tim-soft-2:#eff6ff;
-    }
-    .tim-shell{padding:24px 0 30px;}
-    .tim-hero{
-        position:relative;
-        overflow:hidden;
-        border:1px solid rgba(255,255,255,.12);
-        border-radius:28px;
-        padding:28px;
-        background:
-            radial-gradient(circle at top right, rgba(255,255,255,.10), transparent 28%),
-            linear-gradient(135deg, #0f172a 0%, #1e293b 52%, #334155 100%);
-        box-shadow:0 18px 40px rgba(15,23,42,.18);
-        color:#fff;
-        margin-bottom:20px;
-    }
-    .tim-hero__eyebrow{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        min-height:32px;
-        padding:0 14px;
-        border-radius:999px;
-        background:rgba(255,255,255,.12);
-        border:1px solid rgba(255,255,255,.12);
-        font-size:12px;
-        font-weight:800;
-        letter-spacing:.04em;
-        margin-bottom:14px;
-    }
-    .tim-hero__eyebrow-dot{
-        width:10px;height:10px;border-radius:999px;background:#fff;display:inline-block;
-        box-shadow:0 0 0 6px rgba(255,255,255,.08);
-    }
-    .tim-hero h1{
-        font-size:clamp(30px, 4vw, 46px);
-        line-height:1;
-        font-weight:900;
-        letter-spacing:-.04em;
-        margin:0 0 10px 0;
-        color:#fff;
-    }
-    .tim-hero p{
-        max-width:860px;
-        color:rgba(255,255,255,.92);
-        font-size:15px;
-        line-height:1.65;
-        margin:0;
-    }
-    .tim-hero__chips{
-        display:flex;
-        flex-wrap:wrap;
-        gap:10px;
-        margin-top:18px;
-    }
-    .tim-chip{
-        display:inline-flex;
-        align-items:center;
-        gap:8px;
-        min-height:34px;
-        padding:0 14px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(255,255,255,.10);
-        color:#fff;
-        font-size:12px;
-        font-weight:700;
-    }
+<div
+    class="tim-shell"
+    data-tim-series='@json($series)'
+    data-tim-env="{{ $env }}"
+>
+    <section class="tim-topbar">
+        <div>
+            <div class="tim-eyebrow">
+                <span class="tim-dot tim-dot--{{ $envClass }}"></span>
+                TIMBRES / HITS
+            </div>
 
-    .tim-grid{display:grid;gap:16px;}
-    .tim-grid--kpi{
-        grid-template-columns:repeat(4,minmax(0,1fr));
-        margin-bottom:20px;
-    }
-    .tim-grid--2{
-        grid-template-columns:1.25fr .95fr;
-        margin-bottom:20px;
-    }
-    .tim-grid--modules{
-        grid-template-columns:repeat(3,minmax(0,1fr));
-        margin-bottom:20px;
-    }
+            <h1>Centro de control de timbrado</h1>
 
-    .tim-card{
-        background:var(--tim-card);
-        border:1px solid var(--tim-line);
-        border-radius:24px;
-        box-shadow:0 10px 24px rgba(15,23,42,.04);
-    }
-    .tim-card__body{padding:20px;}
-    .tim-card__head{
-        display:flex;
-        justify-content:space-between;
-        align-items:flex-start;
-        gap:14px;
-        margin-bottom:14px;
-    }
-    .tim-card__title{
-        margin:0;
-        color:var(--tim-text);
-        font-size:20px;
-        line-height:1.1;
-        font-weight:900;
-        letter-spacing:-.03em;
-    }
-    .tim-card__sub{
-        color:var(--tim-muted);
-        font-size:14px;
-        line-height:1.55;
-        margin-top:6px;
-    }
-
-    .tim-kpi{
-        height:100%;
-        background:#fff;
-        border:1px solid var(--tim-line);
-        border-radius:22px;
-        padding:18px;
-        box-shadow:0 8px 20px rgba(15,23,42,.04);
-    }
-    .tim-kpi__label{font-size:13px;font-weight:800;color:var(--tim-muted);margin-bottom:8px;}
-    .tim-kpi__value{font-size:34px;line-height:1;font-weight:900;color:var(--tim-text);margin-bottom:8px;}
-    .tim-kpi__hint{font-size:12px;color:var(--tim-muted);}
-
-    .tim-actions{
-        display:grid;
-        grid-template-columns:repeat(2,minmax(0,1fr));
-        gap:12px;
-    }
-    .tim-action{
-        display:flex;
-        align-items:flex-start;
-        gap:12px;
-        text-decoration:none;
-        color:inherit;
-        border:1px solid var(--tim-line);
-        background:#fff;
-        border-radius:18px;
-        padding:16px;
-        transition:.18s ease;
-    }
-    .tim-action:hover{
-        transform:translateY(-1px);
-        border-color:#cbd5e1;
-        box-shadow:0 10px 18px rgba(15,23,42,.06);
-        text-decoration:none;
-        color:inherit;
-    }
-    .tim-action__icon{
-        width:44px;height:44px;border-radius:14px;
-        display:flex;align-items:center;justify-content:center;
-        background:var(--tim-soft-2);color:var(--tim-primary);
-        flex:0 0 44px;
-    }
-    .tim-action__title{font-size:15px;font-weight:900;color:var(--tim-text);margin-bottom:4px;}
-    .tim-action__text{font-size:13px;line-height:1.55;color:var(--tim-muted);}
-
-    .tim-module{
-        height:100%;
-        border:1px solid var(--tim-line);
-        border-radius:22px;
-        padding:18px;
-        background:#fff;
-        box-shadow:0 8px 20px rgba(15,23,42,.04);
-    }
-    .tim-module__icon{
-        width:52px;height:52px;border-radius:16px;
-        display:flex;align-items:center;justify-content:center;
-        background:var(--tim-soft);
-        color:var(--tim-primary);
-        margin-bottom:14px;
-    }
-    .tim-module__title{
-        font-size:18px;
-        font-weight:900;
-        color:var(--tim-text);
-        line-height:1.15;
-        margin-bottom:8px;
-    }
-    .tim-module__desc{
-        font-size:14px;
-        line-height:1.6;
-        color:var(--tim-muted);
-        min-height:88px;
-        margin-bottom:14px;
-    }
-    .tim-tags{display:flex;flex-wrap:wrap;gap:8px;}
-    .tim-tag{
-        display:inline-flex;
-        align-items:center;
-        min-height:30px;
-        padding:0 12px;
-        border-radius:999px;
-        border:1px solid #dbeafe;
-        background:#f8fbff;
-        color:#1e3a8a;
-        font-size:12px;
-        font-weight:700;
-    }
-
-    .tim-roadmap{
-        display:grid;
-        gap:12px;
-    }
-    .tim-step{
-        display:flex;
-        gap:12px;
-        align-items:flex-start;
-        padding:14px;
-        border:1px solid var(--tim-line);
-        border-radius:18px;
-        background:#fff;
-    }
-    .tim-step__num{
-        width:34px;height:34px;border-radius:999px;
-        display:flex;align-items:center;justify-content:center;
-        background:var(--tim-primary);color:#fff;font-weight:900;flex:0 0 34px;
-    }
-    .tim-step__title{font-size:15px;font-weight:900;color:var(--tim-text);margin-bottom:3px;}
-    .tim-step__text{font-size:13px;line-height:1.55;color:var(--tim-muted);}
-
-    .tim-ai-grid{
-        display:grid;
-        grid-template-columns:repeat(3,minmax(0,1fr));
-        gap:16px;
-    }
-    .tim-ai-card{
-        border:1px solid var(--tim-line);
-        border-radius:22px;
-        padding:18px;
-        background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);
-    }
-    .tim-ai-card__badge{
-        display:inline-flex;
-        align-items:center;
-        min-height:28px;
-        padding:0 10px;
-        border-radius:999px;
-        background:#eef2ff;
-        color:#3730a3;
-        font-size:11px;
-        font-weight:900;
-        margin-bottom:12px;
-    }
-    .tim-ai-card__title{
-        font-size:17px;
-        font-weight:900;
-        color:var(--tim-text);
-        line-height:1.2;
-        margin-bottom:8px;
-    }
-    .tim-ai-card__text{
-        font-size:14px;
-        line-height:1.6;
-        color:var(--tim-muted);
-    }
-
-    .tim-note{
-        margin-top:16px;
-        padding:14px 16px;
-        border-radius:18px;
-        border:1px dashed #cbd5e1;
-        background:#f8fafc;
-        color:var(--tim-muted);
-        font-size:13px;
-        line-height:1.6;
-    }
-
-    @media (max-width: 1199.98px){
-        .tim-grid--kpi{grid-template-columns:repeat(2,minmax(0,1fr));}
-        .tim-grid--modules{grid-template-columns:repeat(2,minmax(0,1fr));}
-        .tim-ai-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-    }
-    @media (max-width: 991.98px){
-        .tim-grid--2{grid-template-columns:1fr;}
-    }
-    @media (max-width: 767.98px){
-        .tim-shell{padding:18px 0 24px;}
-        .tim-hero{padding:22px;}
-        .tim-grid--kpi,
-        .tim-grid--modules,
-        .tim-ai-grid,
-        .tim-actions{grid-template-columns:1fr;}
-        .tim-module__desc{min-height:auto;}
-    }
-</style>
-
-<div class="container-fluid tim-shell">
-    <section class="tim-hero">
-        <div class="tim-hero__eyebrow">
-            <span class="tim-hero__eyebrow-dot"></span>
-            <span>TIMBRES / HITS + FACTUROTOPIA + IA</span>
+            <p>
+                Saldo, consumo, cortes, UUID, errores PAC, ambiente y reportes.
+            </p>
         </div>
 
-        <h1>Timbres / Hits</h1>
+        <div class="tim-toolbar">
+            <button type="button" class="tim-icon-btn" id="timCompactToggle" title="Vista compacta">
+                <span class="material-symbols-outlined">view_compact</span>
+                <span>Compacto</span>
+            </button>
 
-        <p>
-            Administra el saldo, consumo, compras y comportamiento de timbrado desde un solo módulo.
-            Esta base está pensada para conectar Pactopia360 con Facturotopia, primero con operación asistida
-            y correo a soporte, y después con automatización completa por API.
-        </p>
+            <button type="button" class="tim-icon-btn" data-tim-export="table" title="Exportar tabla CSV">
+                <span class="material-symbols-outlined">download</span>
+                <span>CSV</span>
+            </button>
 
-        <div class="tim-hero__chips">
-            <span class="tim-chip">Saldo</span>
-            <span class="tim-chip">Consumo</span>
-            <span class="tim-chip">Compra</span>
-            <span class="tim-chip">Facturotopia</span>
-            <span class="tim-chip">CFDI</span>
-            <span class="tim-chip">IA operativa</span>
+            <a href="{{ $rtExportCfdi }}" class="tim-icon-btn" title="Exportar desde facturación">
+                <span class="material-symbols-outlined">table_view</span>
+                <span>Excel</span>
+            </a>
         </div>
     </section>
 
-    <div class="tim-grid tim-grid--kpi">
-        @foreach($kpis as $kpi)
-            <div class="tim-kpi">
-                <div class="tim-kpi__label">{{ $kpi['label'] }}</div>
-                <div class="tim-kpi__value">{{ $kpi['value'] }}</div>
-                <div class="tim-kpi__hint">{{ $kpi['hint'] }}</div>
+    <section class="tim-summary-strip">
+        <article class="tim-metric tim-metric--{{ $usageStatus }}">
+            <span class="material-symbols-outlined">confirmation_number</span>
+            <div>
+                <small>Disponibles</small>
+                <strong>{{ number_format($timbresDisponibles) }}</strong>
+                <em>{{ number_format($timbresConsumidos) }} consumidos</em>
             </div>
-        @endforeach
-    </div>
+        </article>
 
-    <div class="tim-grid tim-grid--2">
-        <div class="tim-card">
-            <div class="tim-card__body">
+        <article class="tim-metric">
+            <span class="material-symbols-outlined">speed</span>
+            <div>
+                <small>Uso bolsa</small>
+                <strong>{{ number_format($usoPct, 2) }}%</strong>
+                <em>{{ number_format($timbresAsignados) }} asignados</em>
+            </div>
+        </article>
+
+        <article class="tim-metric">
+            <span class="material-symbols-outlined">receipt_long</span>
+            <div>
+                <small>Timbrados mes</small>
+                <strong>{{ number_format((int) ($kpis['emitidos_count'] ?? 0)) }}</strong>
+                <em>{{ $periodo['label'] ?? now()->format('m/Y') }}</em>
+            </div>
+        </article>
+
+        <article class="tim-metric">
+            <span class="material-symbols-outlined">error</span>
+            <div>
+                <small>Errores PAC</small>
+                <strong>{{ number_format((int) ($kpis['errores_count'] ?? 0)) }}</strong>
+                <em>rechazos / fallos</em>
+            </div>
+        </article>
+
+        <article class="tim-metric tim-metric--env">
+            <span class="material-symbols-outlined">toggle_on</span>
+            <div>
+                <small>Ambiente</small>
+                <strong>{{ $envLabel }}</strong>
+                <em>{{ $env === 'production' ? 'Consume saldo real' : 'Sin consumo real' }}</em>
+            </div>
+        </article>
+    </section>
+
+    <section class="tim-env-panel">
+        <div class="tim-env-switch" role="group" aria-label="Ambiente de timbrado">
+            <button type="button" class="tim-env-btn {{ $env === 'sandbox' ? 'is-active' : '' }}" data-env-target="sandbox">
+                <span class="material-symbols-outlined">science</span>
+                Pruebas
+            </button>
+            <button type="button" class="tim-env-btn {{ $env === 'production' ? 'is-active' : '' }}" data-env-target="production">
+                <span class="material-symbols-outlined">verified</span>
+                Producción
+            </button>
+        </div>
+
+        <div class="tim-env-note">
+            <span class="material-symbols-outlined">info</span>
+            <strong id="timEnvLabel">{{ $envLabel }}</strong>
+            <small id="timEnvText">{{ $env === 'production' ? 'Los CFDI timbrados descuentan timbres reales.' : 'Modo seguro para pruebas, validación y configuración PAC.' }}</small>
+        </div>
+    </section>
+
+    <section class="tim-section {{ $sections[0]['open'] ? 'is-open' : '' }}" data-tim-section="overview">
+        <button type="button" class="tim-section__header">
+            <span class="material-symbols-outlined">{{ $sections[0]['icon'] }}</span>
+            <strong>{{ $sections[0]['title'] }}</strong>
+            <em>saldo, monto y comportamiento</em>
+            <i class="material-symbols-outlined">expand_more</i>
+        </button>
+
+        <div class="tim-section__body">
+            <div class="tim-grid tim-grid--main">
+                <article class="tim-card">
+                    <div class="tim-card__head">
+                        <div>
+                            <h2>Consumo mensual</h2>
+                            <p>{{ $periodo['label'] ?? 'Periodo actual' }}</p>
+                        </div>
+                        <span class="tim-pill">{{ $money($kpis['total_periodo'] ?? 0) }}</span>
+                    </div>
+
+                    <div class="tim-chart-card">
+                        <canvas id="timConsumoChart" height="120"></canvas>
+                    </div>
+
+                    <div class="tim-mini-grid">
+                        <div>
+                            <span>Total facturado</span>
+                            <strong>{{ $money($kpis['total_periodo'] ?? 0) }}</strong>
+                        </div>
+                        <div>
+                            <span>Cancelados</span>
+                            <strong>{{ number_format((int) ($kpis['cancelados_count'] ?? 0)) }}</strong>
+                        </div>
+                        <div>
+                            <span>Tiempo PAC</span>
+                            <strong>{{ number_format((int) ($kpis['promedio_pac_ms'] ?? 0)) }} ms</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="tim-card">
+                    <div class="tim-card__head">
+                        <div>
+                            <h2>Corte rápido</h2>
+                            <p>Lectura de bolsa y consumo operativo.</p>
+                        </div>
+                    </div>
+
+                    <div class="tim-progress-box">
+                        <div class="tim-progress-head">
+                            <span>Bolsa usada</span>
+                            <strong>{{ number_format($usoPct, 2) }}%</strong>
+                        </div>
+                        <div class="tim-progress">
+                            <div style="width: {{ min(100, max(0, $usoPct)) }}%"></div>
+                        </div>
+                        <div class="tim-progress-foot">
+                            <span>{{ number_format($timbresConsumidos) }} usados</span>
+                            <span>{{ number_format($timbresDisponibles) }} disponibles</span>
+                        </div>
+                    </div>
+
+                    <div class="tim-quick-list">
+                        <div>
+                            <span class="material-symbols-outlined">bolt</span>
+                            <strong>{{ number_format($hitsDisponibles) }}</strong>
+                            <small>hits disponibles</small>
+                        </div>
+                        <div>
+                            <span class="material-symbols-outlined">history</span>
+                            <strong>{{ $saldo['ultimo_consumo_at'] ?: '—' }}</strong>
+                            <small>último consumo</small>
+                        </div>
+                        <div>
+                            <span class="material-symbols-outlined">tag</span>
+                            <strong>{{ $saldo['ultimo_uuid'] ?: '—' }}</strong>
+                            <small>último UUID</small>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <section class="tim-section {{ $sections[1]['open'] ? 'is-open' : '' }}" data-tim-section="reports">
+        <button type="button" class="tim-section__header">
+            <span class="material-symbols-outlined">{{ $sections[1]['icon'] }}</span>
+            <strong>{{ $sections[1]['title'] }}</strong>
+            <em>UUID, RFC, estatus, ambiente y exportables</em>
+            <i class="material-symbols-outlined">expand_more</i>
+        </button>
+
+        <div class="tim-section__body">
+            <div class="tim-filters">
+                <label>
+                    <span>Buscar</span>
+                    <input type="search" id="timTableSearch" placeholder="UUID, RFC, receptor, estatus...">
+                </label>
+
+                <label>
+                    <span>Estatus</span>
+                    <select id="timStatusFilter">
+                        <option value="">Todos</option>
+                        <option value="timbrado">Timbrado</option>
+                        <option value="emitido">Emitido</option>
+                        <option value="cancelado">Cancelado</option>
+                        <option value="borrador">Borrador</option>
+                        <option value="error">Error</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Tipo</span>
+                    <select id="timTipoFilter">
+                        <option value="">Todos</option>
+                        <option value="I">Ingreso</option>
+                        <option value="E">Egreso</option>
+                        <option value="P">Pago / REP</option>
+                        <option value="N">Nómina</option>
+                        <option value="T">Traslado</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Ambiente</span>
+                    <select id="timEnvFilter">
+                        <option value="">Todos</option>
+                        <option value="sandbox">Pruebas</option>
+                        <option value="production">Producción</option>
+                    </select>
+                </label>
+
+                <div class="tim-filter-actions">
+                    <button type="button" class="tim-btn tim-btn--light" id="timClearFilters">
+                        <span class="material-symbols-outlined">restart_alt</span>
+                        Limpiar
+                    </button>
+
+                    <button type="button" class="tim-btn tim-btn--primary" data-tim-export="table">
+                        <span class="material-symbols-outlined">download</span>
+                        Exportar CSV
+                    </button>
+                </div>
+            </div>
+
+            <div class="tim-grid tim-grid--two">
+                <article class="tim-card">
+                    <div class="tim-card__head">
+                        <div>
+                            <h2>Consumo por RFC</h2>
+                            <p>Top receptores por cantidad y monto.</p>
+                        </div>
+                    </div>
+
+                    <div class="tim-rfc-list">
+                        @forelse($consumoPorRfc as $row)
+                            <div class="tim-rfc-row">
+                                <div>
+                                    <strong>{{ $row->rfc ?? 'SIN RFC' }}</strong>
+                                    <span>{{ $row->receptor ?? 'Receptor' }}</span>
+                                </div>
+                                <div>
+                                    <strong>{{ number_format((int) ($row->cantidad ?? 0)) }}</strong>
+                                    <span>{{ $money($row->monto ?? 0) }}</span>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="tim-empty">Sin consumo por RFC en este periodo.</div>
+                        @endforelse
+                    </div>
+                </article>
+
+                <article class="tim-card">
+                    <div class="tim-card__head">
+                        <div>
+                            <h2>Corte mensual</h2>
+                            <p>Resumen para soporte, administración y conciliación.</p>
+                        </div>
+                    </div>
+
+                    <div class="tim-cut-grid">
+                        <div>
+                            <span>Inicial</span>
+                            <strong>{{ number_format($timbresAsignados) }}</strong>
+                        </div>
+                        <div>
+                            <span>Consumidos</span>
+                            <strong>{{ number_format($timbresConsumidos) }}</strong>
+                        </div>
+                        <div>
+                            <span>Final</span>
+                            <strong>{{ number_format($timbresDisponibles) }}</strong>
+                        </div>
+                        <div>
+                            <span>Errores</span>
+                            <strong>{{ number_format((int) ($kpis['errores_count'] ?? 0)) }}</strong>
+                        </div>
+                    </div>
+
+                    <div class="tim-export-row">
+                        <button type="button" class="tim-btn tim-btn--light" data-tim-export="table">CSV consumo</button>
+                        <button type="button" class="tim-btn tim-btn--light" data-tim-export="rfc">CSV RFC</button>
+                        <a class="tim-btn tim-btn--light" href="{{ $rtFact }}">Ir a Facturación</a>
+                    </div>
+                </article>
+            </div>
+
+            <article class="tim-card">
                 <div class="tim-card__head">
                     <div>
-                        <h2 class="tim-card__title">Centro de operación Timbres / Hits</h2>
-                        <div class="tim-card__sub">
-                            Primera versión simple pero completa para dejar el módulo listo para cotizar, registrar compras y controlar consumo.
+                        <h2>Historial de CFDI procesados</h2>
+                        <p>UUID clicable para abrir el comprobante en Facturación 360.</p>
+                    </div>
+                </div>
+
+                <div class="tim-table-wrap">
+                    <table class="tim-table" id="timCfdiTable">
+                        <thead>
+                            <tr>
+                                <th>UUID</th>
+                                <th>Fecha</th>
+                                <th>RFC</th>
+                                <th>Receptor</th>
+                                <th>Tipo</th>
+                                <th>Total</th>
+                                <th>Estatus</th>
+                                <th>Ambiente</th>
+                                <th>PAC</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($ultimosCfdi as $cfdi)
+                                @php
+                                    $fecha = $cfdi->fecha_timbrado ?? $cfdi->fecha ?? null;
+                                    $uuid = (string) ($cfdi->uuid ?? 'SIN UUID');
+                                    $estatus = strtolower((string) ($cfdi->estatus ?? ''));
+                                    $tipo = $cfdi->tipo_documento ?? $cfdi->tipo_comprobante ?? 'CFDI';
+                                    $rowEnv = $cfdi->ambiente ?? $env;
+                                    $showUrl = Route::has('cliente.facturacion.show')
+                                        ? route('cliente.facturacion.show', $cfdi->id)
+                                        : $rtFact;
+                                @endphp
+
+                                <tr
+                                    data-status="{{ $estatus }}"
+                                    data-tipo="{{ $tipo }}"
+                                    data-env="{{ $rowEnv }}"
+                                >
+                                    <td>
+                                        <a href="{{ $showUrl }}" class="tim-uuid">
+                                            {{ $uuid }}
+                                        </a>
+                                    </td>
+                                    <td>{{ $fecha ? \Carbon\Carbon::parse($fecha)->format('d/m/Y H:i') : '—' }}</td>
+                                    <td>{{ $cfdi->receptor_rfc_resuelto ?? $cfdi->receptor_rfc ?? '—' }}</td>
+                                    <td>{{ $cfdi->receptor_nombre_resuelto ?? 'Receptor' }}</td>
+                                    <td>{{ $tipo }}</td>
+                                    <td>{{ $money($cfdi->total ?? 0) }}</td>
+                                    <td><span class="tim-status tim-status--{{ $estatus ?: 'default' }}">{{ strtoupper($estatus ?: 'N/D') }}</span></td>
+                                    <td>{{ $rowEnv === 'production' ? 'Producción' : 'Pruebas' }}</td>
+                                    <td>{{ isset($cfdi->pac_response_ms) ? number_format((int) $cfdi->pac_response_ms) . ' ms' : '—' }}</td>
+                                    <td><a href="{{ $showUrl }}" class="tim-row-link">Abrir</a></td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="10">
+                                        <div class="tim-empty">Aún no hay CFDI procesados para mostrar.</div>
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <section class="tim-section {{ $sections[2]['open'] ? 'is-open' : '' }}" data-tim-section="pac">
+        <button type="button" class="tim-section__header">
+            <span class="material-symbols-outlined">{{ $sections[2]['icon'] }}</span>
+            <strong>{{ $sections[2]['title'] }}</strong>
+            <em>credenciales, API keys, conexión y diagnóstico</em>
+            <i class="material-symbols-outlined">expand_more</i>
+        </button>
+
+        <div class="tim-section__body">
+            <article class="tim-card">
+                <div class="tim-cred-grid tim-cred-grid--wide">
+                    <div>
+                        <span>Estatus</span>
+                        <strong>{{ strtoupper((string) ($facturotopia['status'] ?? 'pendiente')) }}</strong>
+                    </div>
+                    <div>
+                        <span>ID cliente</span>
+                        <strong>{{ $facturotopia['customer_id'] ?: 'No configurado' }}</strong>
+                    </div>
+                    <div>
+                        <span>Usuario PAC</span>
+                        <strong>{{ $facturotopia['user'] ?: 'No configurado' }}</strong>
+                    </div>
+                    <div>
+                        <span>Contraseña PAC</span>
+                        <strong>{{ $pacPassword !== '' ? 'Configurada' : 'No configurada' }}</strong>
+                    </div>
+                    <div>
+                        <span>Actualización</span>
+                        <strong>{{ $facturotopia['updated_at'] ?: 'Sin fecha' }}</strong>
+                    </div>
+                </div>
+
+                <div class="tim-key-grid">
+                    <div class="tim-key-box">
+                        <label>API key pruebas</label>
+                        <div>
+                            <code data-secret="{{ $sandboxKey }}">{{ $mask($sandboxKey) }}</code>
+                            <button type="button" class="tim-secret-toggle">Ver</button>
+                        </div>
+                    </div>
+
+                    <div class="tim-key-box">
+                        <label>API key producción</label>
+                        <div>
+                            <code data-secret="{{ $productionKey }}">{{ $mask($productionKey) }}</code>
+                            <button type="button" class="tim-secret-toggle">Ver</button>
+                        </div>
+                    </div>
+
+                    <div class="tim-key-box">
+                        <label>Contraseña PAC</label>
+                        <div>
+                            <code data-secret="{{ $pacPassword }}">{{ $mask($pacPassword) }}</code>
+                            <button type="button" class="tim-secret-toggle">Ver</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="tim-actions">
-                    <a href="{{ $rtFact }}" class="tim-action">
-                        <div class="tim-action__icon"><span class="material-symbols-outlined">receipt_long</span></div>
-                        <div>
-                            <div class="tim-action__title">Ir a Facturación</div>
-                            <div class="tim-action__text">Conecta emisión y cancelación CFDI con consumo real de hits.</div>
-                        </div>
-                    </a>
-
-                    <a href="{{ $rtRh }}" class="tim-action">
-                        <div class="tim-action__icon"><span class="material-symbols-outlined">badge</span></div>
-                        <div>
-                            <div class="tim-action__title">Ir a Recursos Humanos</div>
-                            <div class="tim-action__text">Relaciona el timbrado de nómina con RH y CFDI nómina dentro del mismo ecosistema.</div>
-                        </div>
-                    </a>
-
-                    <a href="{{ $rtReportes }}" class="tim-action">
-                        <div class="tim-action__icon"><span class="material-symbols-outlined">monitoring</span></div>
-                        <div>
-                            <div class="tim-action__title">Ir a Reportes</div>
-                            <div class="tim-action__text">Cruza compras, consumos, alertas y comportamiento de timbrado.</div>
-                        </div>
-                    </a>
-
-                    <a href="{{ $rtSat }}" class="tim-action">
-                        <div class="tim-action__icon"><span class="material-symbols-outlined">cloud_download</span></div>
-                        <div>
-                            <div class="tim-action__title">Ir a SAT</div>
-                            <div class="tim-action__text">Relaciona operación SAT, documentación y servicios fiscales con la cuenta.</div>
-                        </div>
-                    </a>
+                <div class="tim-pac-actions">
+                    <button
+                        type="button"
+                        class="tim-btn tim-btn--primary"
+                        id="timFacturotopiaTest"
+                        data-url="{{ route('cliente.modulos.timbres.facturotopia.test') }}"
+                        data-csrf="{{ csrf_token() }}"
+                    >
+                        <span class="material-symbols-outlined">sync</span>
+                        Probar conexión
+                    </button>
                 </div>
 
+                <div class="tim-connection-result" id="timFacturotopiaResult" hidden></div>
                 <div class="tim-note">
-                    <strong>Regla del producto:</strong> cada <strong>CFDI emitido</strong> o <strong>cancelación</strong> consume
-                    <strong>1 hit/timbre</strong>. Los pagos y cobros se controlan en <strong>Pactopia360</strong>, mientras la
-                    asignación inicial puede operarse por soporte hasta automatizar la API.
+                    Este bloque valida credenciales, ambiente, API key, usuario PAC y respuesta de conexión Facturotopia.
                 </div>
-            </div>
+            </article>
         </div>
+    </section>
 
-        <div class="tim-card">
-            <div class="tim-card__body">
-                <div class="tim-card__head">
+    <section class="tim-section {{ $sections[3]['open'] ? 'is-open' : '' }}" data-tim-section="ia">
+        <button type="button" class="tim-section__header">
+            <span class="material-symbols-outlined">{{ $sections[3]['icon'] }}</span>
+            <strong>{{ $sections[3]['title'] }}</strong>
+            <em>alertas, anomalías, recomendación de compra</em>
+            <i class="material-symbols-outlined">expand_more</i>
+        </button>
+
+        <div class="tim-section__body">
+            <article class="tim-card">
+                <div class="tim-alert-list">
+                    @forelse($alertasIa as $alerta)
+                        <div class="tim-alert tim-alert--{{ $alerta['tipo'] ?? 'info' }}">
+                            <span class="material-symbols-outlined">
+                                {{ ($alerta['tipo'] ?? '') === 'danger' ? 'warning' : (($alerta['tipo'] ?? '') === 'warning' ? 'notification_important' : 'check_circle') }}
+                            </span>
+                            <div>
+                                <strong>{{ $alerta['titulo'] ?? 'Alerta' }}</strong>
+                                <small>{{ $alerta['texto'] ?? '' }}</small>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="tim-alert tim-alert--success">
+                            <span class="material-symbols-outlined">check_circle</span>
+                            <div>
+                                <strong>Operación estable</strong>
+                                <small>No hay alertas críticas de timbrado en este periodo.</small>
+                            </div>
+                        </div>
+                    @endforelse
+                </div>
+
+                <div class="tim-ai-grid">
                     <div>
-                        <h2 class="tim-card__title">Ruta de implementación</h2>
-                        <div class="tim-card__sub">
-                            Dejamos el módulo completo en estructura para activarlo por capas sin romper tu proyecto.
-                        </div>
+                        <span class="material-symbols-outlined">trending_up</span>
+                        <strong>Proyección de compra</strong>
+                        <small>Calcula agotamiento según consumo real.</small>
+                    </div>
+                    <div>
+                        <span class="material-symbols-outlined">rule_settings</span>
+                        <strong>Mejora fiscal</strong>
+                        <small>Detecta errores por RFC, CP, régimen o uso CFDI.</small>
+                    </div>
+                    <div>
+                        <span class="material-symbols-outlined">monitoring</span>
+                        <strong>Anomalías PAC</strong>
+                        <small>Identifica intermitencia y tiempos fuera de rango.</small>
                     </div>
                 </div>
-
-                <div class="tim-roadmap">
-                    <div class="tim-step">
-                        <div class="tim-step__num">1</div>
-                        <div>
-                            <div class="tim-step__title">Base de saldo y consumo</div>
-                            <div class="tim-step__text">Dashboard, historial, alertas y comportamiento de timbrado en web + móvil.</div>
-                        </div>
-                    </div>
-
-                    <div class="tim-step">
-                        <div class="tim-step__num">2</div>
-                        <div>
-                            <div class="tim-step__title">Compra de paquetes</div>
-                            <div class="tim-step__text">Cotización, pago y notificación a soporte con precios por rango y precio especial.</div>
-                        </div>
-                    </div>
-
-                    <div class="tim-step">
-                        <div class="tim-step__num">3</div>
-                        <div>
-                            <div class="tim-step__title">Conexión Facturotopia</div>
-                            <div class="tim-step__text">Configurar API keys sandbox/producción y sincronización de emisor.</div>
-                        </div>
-                    </div>
-
-                    <div class="tim-step">
-                        <div class="tim-step__num">4</div>
-                        <div>
-                            <div class="tim-step__title">Automatización</div>
-                            <div class="tim-step__text">Asignación automática, consumo en tiempo real y control integral por API.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </article>
         </div>
-    </div>
-
-    <div class="tim-grid tim-grid--modules">
-        @foreach($sections as $section)
-            <div class="tim-module">
-                <div class="tim-module__icon">
-                    <span class="material-symbols-outlined">{{ $section['icon'] }}</span>
-                </div>
-
-                <div class="tim-module__title">{{ $section['title'] }}</div>
-
-                <div class="tim-module__desc">
-                    {{ $section['desc'] }}
-                </div>
-
-                <div class="tim-tags">
-                    @foreach($section['items'] as $item)
-                        <span class="tim-tag">{{ $item }}</span>
-                    @endforeach
-                </div>
-            </div>
-        @endforeach
-    </div>
-
-    <div class="tim-card mb-4">
-        <div class="tim-card__body">
-            <div class="tim-card__head">
-                <div>
-                    <h2 class="tim-card__title">IA aplicada a Timbres / Hits</h2>
-                    <div class="tim-card__sub">
-                        Este módulo debe ayudarte a prevenir faltantes, detectar anomalías y recomendar compras.
-                    </div>
-                </div>
-            </div>
-
-            <div class="tim-ai-grid">
-                @foreach($aiCards as $card)
-                    <div class="tim-ai-card">
-                        <div class="tim-ai-card__badge">IA Pactopia360</div>
-                        <div class="tim-ai-card__title">{{ $card['title'] }}</div>
-                        <div class="tim-ai-card__text">{{ $card['desc'] }}</div>
-                    </div>
-                @endforeach
-            </div>
-
-            <div class="tim-note">
-                <strong>Idea comercial fuerte:</strong> el módulo debe anticipar cuándo comprar, detectar consumos raros y sugerir el paquete más conveniente según uso real.
-            </div>
-        </div>
-    </div>
+    </section>
 </div>
 @endsection
+
+@push('styles')
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0">
+    <link rel="stylesheet" href="{{ asset('assets/client/css/pages/timbres-hits.css') }}?v={{ file_exists(public_path('assets/client/css/pages/timbres-hits.css')) ? filemtime(public_path('assets/client/css/pages/timbres-hits.css')) : time() }}">
+@endpush
+
+@push('scripts')
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ asset('assets/client/js/pages/timbres-hits.js') }}?v={{ file_exists(public_path('assets/client/js/pages/timbres-hits.js')) ? filemtime(public_path('assets/client/js/pages/timbres-hits.js')) : time() }}"></script>
+@endpush
