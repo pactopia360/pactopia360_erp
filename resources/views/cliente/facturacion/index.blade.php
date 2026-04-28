@@ -136,6 +136,15 @@
 
     $rtIndex = Route::has('cliente.facturacion.index') ? route('cliente.facturacion.index') : '#';
 
+    $rtFacturotopiaTest = Route::has('cliente.facturacion.facturotopia.test')
+    ? route('cliente.facturacion.facturotopia.test')
+    : '#';
+
+    $facturotopiaDefaultEnv = request('facturotopia_env', 'sandbox');
+    $facturotopiaDefaultEnv = in_array($facturotopiaDefaultEnv, ['sandbox', 'production'], true)
+        ? $facturotopiaDefaultEnv
+        : 'sandbox';
+
     $statusLabelMap = [
         ''          => 'Todos',
         'emitido'   => 'Emitido',
@@ -432,6 +441,75 @@ if ($cfdiCollection->isNotEmpty()) {
             </article>
         </section>
 
+        <section class="sat-clean-accordion" aria-label="Facturotopia PAC">
+    <details class="sat-clean-accordion__item" open>
+        <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+            <div class="sat-clean-accordion__bar-left">
+                <span class="sat-clean-accordion__bar-title">Facturotopia PAC</span>
+                <span class="sat-clean-accordion__bar-text">Selecciona ambiente para prueba y timbrado</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span class="sat-clean-status-badge is-success" id="fx360PacEnvBadge">
+                    {{ $facturotopiaDefaultEnv === 'production' ? 'PRODUCCIÓN' : 'PRUEBAS' }}
+                </span>
+
+                <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                </span>
+            </div>
+        </summary>
+
+        <div class="sat-clean-accordion__content">
+            <div class="fx360-pac-panel" data-fx360-pac>
+                <div class="fx360-pac-env" role="group" aria-label="Ambiente Facturotopia">
+                    <button
+                        type="button"
+                        class="fx360-pac-env__btn {{ $facturotopiaDefaultEnv === 'sandbox' ? 'is-active' : '' }}"
+                        data-fx360-env="sandbox"
+                    >
+                        Pruebas
+                    </button>
+
+                    <button
+                        type="button"
+                        class="fx360-pac-env__btn {{ $facturotopiaDefaultEnv === 'production' ? 'is-active' : '' }}"
+                        data-fx360-env="production"
+                    >
+                        Producción
+                    </button>
+                </div>
+
+                <div class="fx360-pac-copy">
+                    <strong id="fx360PacEnvTitle">
+                        {{ $facturotopiaDefaultEnv === 'production' ? 'Producción activa' : 'Pruebas activas' }}
+                    </strong>
+                    <span id="fx360PacEnvText">
+                        {{ $facturotopiaDefaultEnv === 'production'
+                            ? 'El timbrado usará API key/base URL de producción y descontará timbres reales.'
+                            : 'El timbrado usará API key/base URL sandbox y no debe descontar timbres reales.' }}
+                    </span>
+                </div>
+
+                <button
+                    type="button"
+                    class="sat-clean-btn sat-clean-btn--primary sat-clean-btn--compact"
+                    id="fx360FacturotopiaTest"
+                    data-url="{{ $rtFacturotopiaTest }}"
+                    data-csrf="{{ csrf_token() }}"
+                >
+                    Probar conexión
+                </button>
+            </div>
+
+            <div class="fx360-pac-result" id="fx360FacturotopiaResult" hidden></div>
+        </div>
+    </details>
+</section>
+
         <section class="sat-clean-accordion" aria-label="Emisión">
             <details class="sat-clean-accordion__item" open>
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
@@ -681,18 +759,21 @@ if ($cfdiCollection->isNotEmpty()) {
                                 </tr>
                             </thead>
                             <tbody>
-                                @forelse($cfdis as $row)
+                                @forelse($cfdiCollection->filter(fn ($row) => strtolower((string) ($row->estatus ?? '')) !== 'borrador')->values() as $row)
                                     @php
                                         $serieFolio = trim(($row->serie ? ($row->serie . '-') : '') . ($row->folio ?? ''), '- ') ?: '—';
                                         $st = strtolower((string) ($row->estatus ?? ''));
                                     @endphp
                                     <tr>
                                         <td>
-                                            <div class="sat-clean-rfc-inline-main">
-                                                <span class="sat-clean-rfc-inline-main__rfc">{{ $serieFolio }}</span>
-                                            </div>
-                                            <div class="sat-clean-rfc-inline-text">
-                                                {{ $row->uuid ?: 'Sin UUID' }}
+                                            <div class="fx360-cfdi-id">
+                                                <span class="fx360-cfdi-id__serie">
+                                                    {{ $serieFolio }}
+                                                </span>
+
+                                                <span class="fx360-cfdi-id__uuid {{ $row->uuid ? '' : 'is-empty' }}">
+                                                    UUID: {{ $row->uuid ?: 'Pendiente / no timbrado real' }}
+                                                </span>
                                             </div>
                                         </td>
 
@@ -709,12 +790,14 @@ if ($cfdiCollection->isNotEmpty()) {
                                         </td>
 
                                         <td>
-                                            @if($st === 'emitido')
-                                                <span class="sat-clean-status-badge is-success">Emitido</span>
+                                            @if(in_array($st, ['emitido', 'timbrado'], true))
+                                                <span class="sat-clean-status-badge is-success">Timbrado</span>
                                             @elseif($st === 'cancelado')
                                                 <span class="sat-clean-status-badge is-muted">Cancelado</span>
+                                            @elseif($st === 'error')
+                                                <span class="sat-clean-status-badge is-danger">Error</span>
                                             @else
-                                                <span class="sat-clean-status-badge is-warning">Borrador</span>
+                                                <span class="sat-clean-status-badge is-warning">{{ strtoupper($st ?: 'N/D') }}</span>
                                             @endif
                                         </td>
 
@@ -728,7 +811,7 @@ if ($cfdiCollection->isNotEmpty()) {
                                                     <a class="fx360-action-icon"
                                                     href="{{ route('cliente.facturacion.show', $row->id) }}"
                                                     data-tip="Ver"
-                                                    aria-label="Ver CFDI">
+                                                    aria-label="Ver borrador">
                                                         <svg viewBox="0 0 24 24" fill="none">
                                                             <path d="M2.5 12C4.7 7.8 8 5.7 12 5.7C16 5.7 19.3 7.8 21.5 12C19.3 16.2 16 18.3 12 18.3C8 18.3 4.7 16.2 2.5 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                                                             <path d="M12 15.2C13.7673 15.2 15.2 13.7673 15.2 12C15.2 10.2327 13.7673 8.8 12 8.8C10.2327 8.8 8.8 10.2327 8.8 12C8.8 13.7673 10.2327 15.2 12 15.2Z" stroke="currentColor" stroke-width="2"/>
@@ -736,11 +819,32 @@ if ($cfdiCollection->isNotEmpty()) {
                                                     </a>
                                                 @endif
 
+                                                @if(in_array($st, ['emitido', 'timbrado'], true))
+                                                    @if(Route::has('cliente.facturacion.ver_pdf'))
+                                                        <a class="fx360-action-icon fx360-action-icon--pdf"
+                                                        href="{{ route('cliente.facturacion.ver_pdf', $row->id) }}"
+                                                        target="_blank"
+                                                        data-tip="PDF"
+                                                        aria-label="Ver PDF">
+                                                            PDF
+                                                        </a>
+                                                    @endif
+
+                                                    @if(Route::has('cliente.facturacion.descargar_xml'))
+                                                        <a class="fx360-action-icon fx360-action-icon--xml"
+                                                        href="{{ route('cliente.facturacion.descargar_xml', $row->id) }}"
+                                                        data-tip="XML"
+                                                        aria-label="Descargar XML">
+                                                            XML
+                                                        </a>
+                                                    @endif
+                                                @endif
+
                                                 @if(Route::has('cliente.facturacion.edit'))
                                                     <a class="fx360-action-icon"
                                                     href="{{ route('cliente.facturacion.edit', $row->id) }}"
                                                     data-tip="Editar"
-                                                    aria-label="Editar CFDI">
+                                                    aria-label="Editar borrador">
                                                         <svg viewBox="0 0 24 24" fill="none">
                                                             <path d="M4 20H8.6L19.25 9.35C20.05 8.55 20.05 7.25 19.25 6.45L17.55 4.75C16.75 3.95 15.45 3.95 14.65 4.75L4 15.4V20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
                                                             <path d="M13.5 5.9L18.1 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -751,8 +855,10 @@ if ($cfdiCollection->isNotEmpty()) {
                                                 @if(Route::has('cliente.facturacion.timbrar'))
                                                     <form method="POST"
                                                         action="{{ route('cliente.facturacion.timbrar', $row->id) }}"
-                                                        onsubmit="return confirm('¿Timbrar este CFDI? Por ahora se marcará como timbrado interno hasta conectar PAC/timbres.');">
+                                                        class="fx360-timbrar-form"
+                                                        onsubmit="return confirm('¿Timbrar este CFDI en el ambiente seleccionado?');">
                                                         @csrf
+                                                        <input type="hidden" name="facturotopia_env" value="{{ $facturotopiaDefaultEnv }}">
                                                         <button type="submit"
                                                                 class="fx360-action-icon fx360-action-icon--success"
                                                                 data-tip="Timbrar"
@@ -1001,4 +1107,252 @@ if ($cfdiCollection->isNotEmpty()) {
 
     </div>
 </div>
+
+<style>
+    .fx360-pac-panel{
+        display:grid;
+        grid-template-columns:auto minmax(0,1fr) auto;
+        gap:14px;
+        align-items:center;
+        margin-top:12px;
+        padding:14px;
+        border:1px solid rgba(219,231,245,.95);
+        border-radius:20px;
+        background:#f8fbff;
+    }
+
+    .fx360-pac-env{
+        display:flex;
+        gap:8px;
+        padding:5px;
+        border-radius:16px;
+        background:#eef4ff;
+    }
+
+    .fx360-pac-env__btn{
+        min-height:38px;
+        padding:0 14px;
+        border:0;
+        border-radius:13px;
+        background:transparent;
+        color:#315784;
+        font-size:12px;
+        font-weight:900;
+        cursor:pointer;
+    }
+
+    .fx360-pac-env__btn.is-active{
+        background:#0f5eff;
+        color:#fff;
+        box-shadow:0 10px 22px rgba(15,94,255,.18);
+    }
+
+    .fx360-pac-copy strong,
+    .fx360-pac-copy span{
+        display:block;
+    }
+
+    .fx360-pac-copy strong{
+        color:#10213f;
+        font-size:14px;
+        font-weight:900;
+        margin-bottom:3px;
+    }
+
+    .fx360-pac-copy span{
+        color:#64748b;
+        font-size:12px;
+        line-height:1.45;
+        font-weight:700;
+    }
+
+    .fx360-pac-result{
+        margin-top:12px;
+        border-radius:16px;
+        padding:13px 14px;
+        font-size:12px;
+        font-weight:800;
+        line-height:1.5;
+    }
+
+    .fx360-pac-result strong,
+    .fx360-pac-result span{
+        display:block;
+    }
+
+    .fx360-pac-result.is-info{
+        background:#eff6ff;
+        border:1px solid #bfdbfe;
+        color:#1e40af;
+    }
+
+    .fx360-pac-result.is-success{
+        background:#f0fdf4;
+        border:1px solid #bbf7d0;
+        color:#166534;
+    }
+
+    .fx360-pac-result.is-danger{
+        background:#fef2f2;
+        border:1px solid #fecaca;
+        color:#991b1b;
+    }
+
+    @media (max-width: 991.98px){
+        .fx360-pac-panel{
+            grid-template-columns:1fr;
+        }
+    }
+
+    .fx360-cfdi-id{
+    display:grid;
+    gap:4px;
+    min-width:0;
+}
+
+.fx360-cfdi-id__serie{
+    display:inline-flex;
+    width:max-content;
+    max-width:100%;
+    padding:4px 8px;
+    border-radius:999px;
+    background:#eef5ff;
+    color:#1d4ed8;
+    border:1px solid #d8e7ff;
+    font-size:11px;
+    line-height:1.1;
+    font-weight:950;
+    letter-spacing:.01em;
+}
+
+.fx360-cfdi-id__uuid{
+    display:block;
+    max-width:360px;
+    color:#64748b;
+    font-size:10.5px;
+    line-height:1.35;
+    font-weight:800;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    word-break:break-all;
+}
+
+.fx360-cfdi-id__uuid.is-empty{
+    color:#b45309;
+}
+
+.fx360-action-icon--pdf,
+.fx360-action-icon--xml{
+    width:auto !important;
+    min-width:38px;
+    padding:0 9px;
+    font-size:10px;
+    font-weight:950;
+    text-decoration:none;
+}
+
+.fx360-action-icon--pdf{
+    color:#b91c1c;
+    background:#fff5f5;
+    border-color:#fecaca;
+}
+
+.fx360-action-icon--xml{
+    color:#0f766e;
+    background:#f0fdfa;
+    border-color:#99f6e4;
+}
+</style>
+
+<script>
+(function(){
+    const root = document.querySelector('[data-fx360-pac]');
+    if (!root) return;
+
+    const buttons = document.querySelectorAll('[data-fx360-env]');
+    const title = document.getElementById('fx360PacEnvTitle');
+    const text = document.getElementById('fx360PacEnvText');
+    const badge = document.getElementById('fx360PacEnvBadge');
+    const testButton = document.getElementById('fx360FacturotopiaTest');
+    const resultBox = document.getElementById('fx360FacturotopiaResult');
+
+    function currentEnv(){
+        const active = document.querySelector('[data-fx360-env].is-active');
+        return active ? active.dataset.fx360Env : 'sandbox';
+    }
+
+    function setEnv(env){
+        env = env === 'production' ? 'production' : 'sandbox';
+
+        buttons.forEach((btn) => {
+            btn.classList.toggle('is-active', btn.dataset.fx360Env === env);
+        });
+
+        document.querySelectorAll('.fx360-timbrar-form input[name="facturotopia_env"]').forEach((input) => {
+            input.value = env;
+        });
+
+        if (badge) badge.textContent = env === 'production' ? 'PRODUCCIÓN' : 'PRUEBAS';
+        if (title) title.textContent = env === 'production' ? 'Producción activa' : 'Pruebas activas';
+        if (text) {
+            text.textContent = env === 'production'
+                ? 'El timbrado usará API key/base URL de producción y descontará timbres reales.'
+                : 'El timbrado usará API key/base URL sandbox y no debe descontar timbres reales.';
+        }
+    }
+
+    buttons.forEach((btn) => {
+        btn.addEventListener('click', function(){
+            setEnv(this.dataset.fx360Env || 'sandbox');
+        });
+    });
+
+    if (testButton && resultBox) {
+        testButton.addEventListener('click', async function(){
+            const url = this.dataset.url || '';
+            const csrf = this.dataset.csrf || '';
+            const env = currentEnv();
+
+            if (!url || url === '#') return;
+
+            this.disabled = true;
+            resultBox.hidden = false;
+            resultBox.className = 'fx360-pac-result is-info';
+            resultBox.textContent = 'Probando conexión Facturotopia...';
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrf
+                    },
+                    body: JSON.stringify({ env })
+                });
+
+                const json = await response.json();
+
+                resultBox.className = json.ok
+                    ? 'fx360-pac-result is-success'
+                    : 'fx360-pac-result is-danger';
+
+                resultBox.innerHTML = `
+                    <strong>${json.message || 'Resultado Facturotopia'}</strong>
+                    <span>Ambiente: ${json.env || env}</span>
+                    <span>Base URL: ${json.base_url || 'No configurada'}</span>
+                    <span>HTTP: ${json.status || 'N/D'} · Tiempo: ${json.response_ms || 0} ms</span>
+                    <span>API key: ${json.has_api_key ? 'OK' : 'Falta'} · Usuario: ${json.has_user ? 'OK' : 'Falta'} · Contraseña: ${json.has_password ? 'OK' : 'Falta'}</span>
+                `;
+            } catch (error) {
+                resultBox.className = 'fx360-pac-result is-danger';
+                resultBox.textContent = 'Error al probar conexión: ' + error.message;
+            } finally {
+                this.disabled = false;
+            }
+        });
+    }
+
+    setEnv(currentEnv());
+})();
+</script>
 @endsection

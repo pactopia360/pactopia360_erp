@@ -440,6 +440,29 @@
             width:100%;
         }
     }
+
+    .fx360-detail-seriebox{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    margin:0 0 10px;
+}
+
+.fx360-detail-seriebox span{
+    display:inline-flex;
+    align-items:center;
+    min-height:24px;
+    padding:0 9px;
+    border-radius:999px;
+    background:rgba(255,255,255,.15);
+    border:1px solid rgba(255,255,255,.20);
+    color:#fff;
+    font-size:10.5px;
+    font-weight:950;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+}
 </style>
 @endpush
 
@@ -465,6 +488,9 @@
         (($cfdi->serie ?? '') ? ($cfdi->serie . '-') : '') . ($cfdi->folio ?? ''),
         '- '
     ) ?: 'Sin serie / folio';
+
+    $serie = trim((string) ($cfdi->serie ?? ''));
+    $folio = trim((string) ($cfdi->folio ?? ''));
 
     $uuid = (string) ($cfdi->uuid ?? '');
     $subtotal = (float) ($cfdi->subtotal ?? 0);
@@ -510,6 +536,11 @@
                 </div>
 
                 <h1 class="fx360-detail-title">Detalle CFDI</h1>
+
+                <div class="fx360-detail-seriebox">
+                    <span>Serie: {{ $serie ?: '—' }}</span>
+                    <span>Folio: {{ $folio ?: '—' }}</span>
+                </div>
 
                 <p class="fx360-detail-subtitle">
                     Consulta la información fiscal, contable y operativa del comprobante.

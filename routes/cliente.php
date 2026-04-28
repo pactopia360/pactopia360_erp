@@ -596,6 +596,14 @@ Route::middleware(['auth:web', 'account.active'])
                 ->whereNumber('cfdi')
                 ->name('show');
             
+            Route::get('/{cfdi}/pdf', [ClienteFacturacion::class, 'verPdf'])
+                ->whereNumber('cfdi')
+                ->name('ver_pdf');
+
+            Route::get('/{cfdi}/xml', [ClienteFacturacion::class, 'descargarXml'])
+                ->whereNumber('cfdi')
+                ->name('descargar_xml');
+            
             Route::get('/{cfdi}/editar', [ClienteFacturacion::class, 'edit'])
                 ->whereNumber('cfdi')
                 ->name('edit');
@@ -612,6 +620,9 @@ Route::middleware(['auth:web', 'account.active'])
                 ->whereNumber('cfdi')
                 ->name('timbrar');
 
+            Route::post('/facturotopia/test', [ClienteFacturacion::class, 'facturotopiaTest'])
+                ->name('facturotopia.test');
+            
             Route::get('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorShow'])
                 ->whereNumber('receptor')
                 ->name('receptores.show');

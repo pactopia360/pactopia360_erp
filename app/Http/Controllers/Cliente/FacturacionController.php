@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\Cliente\SepomexCodigoPostal;
+use App\Services\Billing\FacturotopiaService;
+use Illuminate\Support\Facades\View as ViewFactory;
 
 
 class FacturacionController extends Controller
@@ -1217,165 +1219,584 @@ public function show(int $cfdi): View
     ]);
 }
 
+public function descargarXml(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (! in_array(strtolower((string) $item->estatus), ['emitido', 'timbrado'], true)) {
+        return back()->withErrors([
+            'xml' => 'El XML solo está disponible para CFDI timbrados.',
+        ]);
+    }
+
+    $xml = $this->buildCfdiXmlFallback($item);
+
+    $filename = 'CFDI_' . ($item->serie ?: 'S') . '_' . ($item->folio ?: $item->id) . '.xml';
+
+    return response($xml, 200, [
+        'Content-Type' => 'application/xml; charset=UTF-8',
+        'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+    ]);
+}
+
+public function verPdf(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (! in_array(strtolower((string) $item->estatus), ['emitido', 'timbrado'], true)) {
+        return back()->withErrors([
+            'pdf' => 'El PDF solo está disponible para CFDI timbrados.',
+        ]);
+    }
+
+    return response()
+        ->view('cliente.facturacion.pdf', [
+            'cfdi' => $item,
+            'brand' => $this->resolveCfdiBranding(),
+            'isFallbackPdf' => true,
+        ])
+        ->header('Content-Type', 'text/html; charset=UTF-8');
+}
+
+protected function buildCfdiXmlFallback($cfdi): string
+{
+    $uuid = trim((string) ($cfdi->uuid ?? ''));
+
+    if ($uuid === '' || str_starts_with($uuid, 'BORRADOR-')) {
+        $uuid = strtoupper((string) Str::uuid());
+    }
+
+    $serie = htmlspecialchars((string) ($cfdi->serie ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $folio = htmlspecialchars((string) ($cfdi->folio ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $fecha = optional($cfdi->fecha)->format('Y-m-d\TH:i:s') ?: now()->format('Y-m-d\TH:i:s');
+
+    $emisorRfc = htmlspecialchars((string) ($cfdi->emisor_rfc ?? 'XAXX010101000'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $emisorNombre = htmlspecialchars((string) ($cfdi->emisor_razon_social ?? $cfdi->emisor_nombre ?? 'EMISOR'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+
+    $receptor = $cfdi->receptor ?? null;
+    $receptorRfc = htmlspecialchars((string) ($receptor->rfc ?? $cfdi->receptor_rfc ?? 'XAXX010101000'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $receptorNombre = htmlspecialchars((string) ($receptor->razon_social ?? $cfdi->receptor_nombre ?? 'PUBLICO EN GENERAL'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+
+    $subtotal = number_format((float) ($cfdi->subtotal ?? 0), 2, '.', '');
+    $iva = number_format((float) ($cfdi->iva ?? 0), 2, '.', '');
+    $total = number_format((float) ($cfdi->total ?? 0), 2, '.', '');
+
+    $conceptosXml = '';
+
+    foreach (($cfdi->conceptos ?? collect()) as $concepto) {
+        $descripcion = htmlspecialchars((string) ($concepto->descripcion ?? 'Concepto'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $cantidad = number_format((float) ($concepto->cantidad ?? 1), 2, '.', '');
+        $valorUnitario = number_format((float) ($concepto->precio_unitario ?? 0), 2, '.', '');
+        $importe = number_format((float) ($concepto->subtotal ?? (($concepto->cantidad ?? 1) * ($concepto->precio_unitario ?? 0))), 2, '.', '');
+
+        $conceptosXml .= <<<XML
+        <cfdi:Concepto ClaveProdServ="01010101" Cantidad="{$cantidad}" ClaveUnidad="ACT" Descripcion="{$descripcion}" ValorUnitario="{$valorUnitario}" Importe="{$importe}" ObjetoImp="02" />
+
+XML;
+    }
+
+    return <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="{$serie}" Folio="{$folio}" Fecha="{$fecha}" SubTotal="{$subtotal}" Moneda="MXN" Total="{$total}" TipoDeComprobante="I" Exportacion="01" LugarExpedicion="00000">
+    <cfdi:Emisor Rfc="{$emisorRfc}" Nombre="{$emisorNombre}" RegimenFiscal="601" />
+    <cfdi:Receptor Rfc="{$receptorRfc}" Nombre="{$receptorNombre}" DomicilioFiscalReceptor="00000" RegimenFiscalReceptor="601" UsoCFDI="G03" />
+    <cfdi:Conceptos>
+{$conceptosXml}    </cfdi:Conceptos>
+    <cfdi:Impuestos TotalImpuestosTrasladados="{$iva}" />
+    <cfdi:Complemento>
+        <tfd:TimbreFiscalDigital Version="1.1" UUID="{$uuid}" FechaTimbrado="{$fecha}" RfcProvCertif="SIMULADO" />
+    </cfdi:Complemento>
+</cfdi:Comprobante>
+XML;
+}
+
+protected function resolveCfdiBranding(): array
+{
+    $cuenta = $this->currentCuenta();
+
+    $brand = [
+        'logo_url' => null,
+        'primary' => '#2458cf',
+        'secondary' => '#173b78',
+        'accent' => '#38bdf8',
+        'nombre' => 'Pactopia360',
+    ];
+
+    if (! $cuenta) {
+        return $brand;
+    }
+
+    foreach (['nombre_comercial', 'razon_social', 'nombre'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $brand['nombre'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['brand_primary', 'color_primary', 'primary_color'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $brand['primary'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['brand_secondary', 'color_secondary', 'secondary_color'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $brand['secondary'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    foreach (['logo_url', 'logo', 'brand_logo'] as $field) {
+        if (! empty($cuenta->{$field})) {
+            $brand['logo_url'] = (string) $cuenta->{$field};
+            break;
+        }
+    }
+
+    return $brand;
+}
+
 public function destroy(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    DB::connection($this->cfdiConn())->table('cfdis')
+        ->where('id', $item->id)
+        ->delete();
+
+    return response()->json([
+        'ok' => true,
+        'message' => 'CFDI eliminado correctamente.'
+    ]);
+}
+
+public function descargarZip(int $cfdi)
+{
+    $item = $this->findOwnedCfdi($cfdi);
+
+    if (!$item->xml_timbrado) {
+        return back()->withErrors(['zip' => 'No hay XML disponible']);
+    }
+
+    $zipName = 'CFDI_'.$item->serie.'_'.$item->folio.'.zip';
+    $zipPath = storage_path('app/temp/'.$zipName);
+
+    if (!file_exists(dirname($zipPath))) {
+        mkdir(dirname($zipPath), 0777, true);
+    }
+
+    $zip = new \ZipArchive();
+    $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+
+    $zip->addFromString('cfdi.xml', $item->xml_timbrado);
+
+    if ($item->pdf_base64) {
+        $zip->addFromString('cfdi.pdf', base64_decode($item->pdf_base64));
+    }
+
+    $zip->close();
+
+    return response()->download($zipPath)->deleteFileAfterSend();
+}
+
+    public function timbrar(int $cfdi, FacturotopiaService $facturotopia)
 {
     $item = $this->findOwnedCfdi($cfdi);
 
     if (strtolower((string) $item->estatus) !== 'borrador') {
         return back()->withErrors([
-            'cfdi' => 'Solo se pueden eliminar CFDI en borrador.',
+            'cfdi' => 'Este CFDI ya no está en borrador.',
         ]);
     }
 
+    $cuenta = $this->currentCuenta();
+
+    if (! $cuenta || empty($cuenta->id)) {
+        return back()->withErrors([
+            'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
+        ]);
+    }
+
+    $adminAccountId = $this->resolveAdminAccountIdFromCuenta($cuenta);
+
+    if (! $adminAccountId) {
+        return back()->withErrors([
+            'timbres' => 'No se pudo resolver la cuenta admin para timbrar.',
+        ]);
+    }
+
+    $env = strtolower((string) request()->input('facturotopia_env', 'sandbox'));
+    $env = in_array($env, ['sandbox', 'production'], true) ? $env : 'sandbox';
+
     $conn = $this->cfdiConn();
+    $table = (new Cfdi)->getTable();
 
-    DB::connection($conn)->transaction(function () use ($conn, $item) {
-        DB::connection($conn)
-            ->table('cfdi_conceptos')
-            ->where('cfdi_id', $item->id)
-            ->delete();
+    try {
+        $payloadJson = $this->buildFacturotopiaPayloadFromCfdi($item);
 
-        DB::connection($conn)
-            ->table('cfdis')
-            ->where('id', $item->id)
-            ->delete();
-    });
+        $result = $facturotopia->timbrarCfdi($adminAccountId, $payloadJson, $env);
 
-    return redirect()
-        ->route('cliente.facturacion.index')
-        ->with('ok', 'Borrador eliminado correctamente.');
+        if (! (bool) ($result['ok'] ?? false)) {
+            DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
+                'pac_env' => $env,
+                'pac_status' => 'error',
+                'pac_response' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'json_enviado' => json_encode($payloadJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'updated_at' => now(),
+            ]));
+
+            return back()->withErrors([
+                'timbrado' => 'Facturotopia rechazó el timbrado. HTTP: ' . ($result['status'] ?? 'N/D') . '. Revisa la respuesta PAC.',
+            ]);
+        }
+
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $xmlBase64 = $this->extractBase64FromPacResponse($data, $result['body'] ?? '', [
+            'xml_base64',
+            'XmlBase64',
+            'XMLBase64',
+            'xml',
+            'Xml',
+            'XML',
+            'cfdi',
+            'Cfdi',
+            'comprobante',
+            'Comprobante',
+            'data.xml',
+            'data.Xml',
+            'data.xml_base64',
+            'result.xml',
+            'result.Xml',
+            'result.xml_base64',
+        ]);
+
+        if ($xmlBase64 === '') {
+            DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
+                'pac_env' => $env,
+                'pac_status' => 'sin_xml',
+                'pac_response' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'json_enviado' => json_encode($payloadJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'updated_at' => now(),
+            ]));
+
+            return back()->withErrors([
+                'timbrado' => 'El PAC respondió OK, pero no se encontró XML Base64 en la respuesta.',
+            ]);
+        }
+
+        $xmlTimbrado = base64_decode($xmlBase64, true);
+
+        if (! is_string($xmlTimbrado) || trim($xmlTimbrado) === '') {
+            return back()->withErrors([
+                'timbrado' => 'El XML Base64 recibido no se pudo decodificar.',
+            ]);
+        }
+
+        $timbre = $this->extractCfdiTimbreData($xmlTimbrado);
+
+        $pdfBase64 = $this->extractBase64FromPacResponse($data, $result['body'] ?? '', [
+            'pdf_base64',
+            'PdfBase64',
+            'PDFBase64',
+            'pdf',
+            'Pdf',
+            'PDF',
+            'data.pdf',
+            'data.Pdf',
+            'data.pdf_base64',
+            'result.pdf',
+            'result.Pdf',
+            'result.pdf_base64',
+        ]);
+
+        DB::connection($conn)->transaction(function () use (
+            $conn,
+            $table,
+            $item,
+            $env,
+            $result,
+            $payloadJson,
+            $xmlBase64,
+            $xmlTimbrado,
+            $pdfBase64,
+            $timbre
+        ) {
+            DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
+                'estatus' => 'emitido',
+                'uuid' => $timbre['uuid'] ?: $item->uuid,
+                'pac_env' => $env,
+                'pac_status' => 'timbrado',
+                'pac_uuid' => $timbre['uuid'] ?: null,
+                'pac_response' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'json_enviado' => json_encode($payloadJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'xml_base64' => $xmlBase64,
+                'xml_timbrado' => $xmlTimbrado,
+                'pdf_base64' => $pdfBase64 ?: null,
+                'fecha_timbrado' => $timbre['fecha_timbrado'] ?: now(),
+                'sello_cfd' => $timbre['sello_cfd'] ?: null,
+                'sello_sat' => $timbre['sello_sat'] ?: null,
+                'no_certificado_sat' => $timbre['no_certificado_sat'] ?: null,
+                'no_certificado_cfd' => $timbre['no_certificado_cfd'] ?: null,
+                'qr_url' => $timbre['qr_url'] ?: null,
+                'cadena_original' => $timbre['cadena_original'] ?: null,
+                'timbrado_por' => 'pactopia.com',
+                'es_timbrado_real' => 1,
+                'updated_at' => now(),
+            ]));
+        });
+
+        return redirect()
+            ->route('cliente.facturacion.show', $item->id)
+            ->with('ok', 'CFDI timbrado correctamente por pactopia.com.');
+    } catch (\Throwable $e) {
+        report($e);
+
+        return back()->withErrors([
+            'timbrado' => 'No se pudo timbrar el CFDI: ' . $e->getMessage(),
+        ]);
+    }
 }
 
-    public function timbrar(int $cfdi)
-    {
-        $item = $this->findOwnedCfdi($cfdi);
+protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
+{
+    $receptor = $cfdi->receptor;
+    $conceptos = $cfdi->conceptos ?? collect();
 
-        if (strtolower((string) $item->estatus) !== 'borrador') {
-            return back()->withErrors([
-                'cfdi' => 'Este CFDI ya no está en borrador.',
-            ]);
-        }
+    $emisorId = $this->resolveFacturotopiaEmisorId($cfdi);
 
-        $cuenta = $this->currentCuenta();
+    $payload = [
+        'Idx' => (string) Str::uuid(),
+        'Version' => '4.0',
+        'Fecha' => optional($cfdi->fecha)->format('Y-m-d H:i:s') ?: now()->format('Y-m-d H:i:s'),
+        'FormaPago' => (string) ($cfdi->forma_pago ?: '03'),
+        'MetodoPago' => (string) ($cfdi->metodo_pago ?: 'PUE'),
+        'SubTotal' => number_format((float) ($cfdi->subtotal ?? 0), 2, '.', ''),
+        'Moneda' => (string) ($cfdi->moneda ?: 'MXN'),
+        'Total' => number_format((float) ($cfdi->total ?? 0), 2, '.', ''),
+        'TipoDeComprobante' => (string) ($cfdi->tipo_comprobante ?: 'I'),
+        'Exportacion' => '01',
+        'Emisor' => [
+            'Id' => $emisorId,
+        ],
+        'Receptor' => [
+            'Rfc' => strtoupper((string) ($receptor->rfc ?? $cfdi->rfc_receptor ?? 'XAXX010101000')),
+            'Nombre' => strtoupper((string) ($receptor->razon_social ?? $receptor->nombre_comercial ?? $cfdi->razon_receptor ?? 'PUBLICO GENERAL')),
+            'UsoCFDI' => (string) ($receptor->uso_cfdi ?? $cfdi->uso_cfdi ?? 'G03'),
+            'CP' => (string) ($receptor->codigo_postal ?? $cfdi->cp_receptor ?? '00000'),
+            'Regimen' => (string) ($receptor->regimen_fiscal ?? $cfdi->regimen_receptor ?? '601'),
+        ],
+        'Conceptos' => [
+            'Concepto' => [],
+        ],
+    ];
 
-        if (! $cuenta || empty($cuenta->id)) {
-            return back()->withErrors([
-                'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
-            ]);
-        }
+    if (! empty($cfdi->serie)) {
+        $payload['Serie'] = (string) $cfdi->serie;
+    }
 
-        $conn = $this->cfdiConn();
-        $table = (new Cfdi)->getTable();
+    if (! empty($cfdi->folio)) {
+        $payload['Folio'] = (string) $cfdi->folio;
+    }
 
-        try {
-            DB::connection($conn)->beginTransaction();
+    foreach ($conceptos as $concepto) {
+        $cantidad = (float) ($concepto->cantidad ?? 1);
+        $precio = (float) ($concepto->precio_unitario ?? 0);
+        $importe = (float) ($concepto->subtotal ?? ($cantidad * $precio));
+        $iva = (float) ($concepto->iva ?? 0);
 
-            $adminAccountId = null;
+        $item = [
+            'ClaveProdServ' => (string) ($concepto->clave_producto_sat ?? '01010101'),
+            'Descripcion' => (string) ($concepto->descripcion ?? 'Concepto'),
+            'Cantidad' => number_format($cantidad, 6, '.', ''),
+            'ClaveUnidad' => (string) ($concepto->clave_unidad_sat ?? 'ACT'),
+            'Unidad' => (string) ($concepto->unidad ?? 'Actividad'),
+            'ValorUnitario' => number_format($precio, 2, '.', ''),
+            'Importe' => number_format($importe, 2, '.', ''),
+            'ObjetoImp' => $iva > 0 ? '02' : '01',
+        ];
 
-            try {
-                $cuentaCliente = DB::connection('mysql_clientes')
-                    ->table('cuentas_cliente')
-                    ->where('id', (string) $cuenta->id)
-                    ->first();
-
-                $adminAccountId = $cuentaCliente->admin_account_id ?? null;
-            } catch (\Throwable $e) {
-                $adminAccountId = null;
-            }
-
-            if (empty($adminAccountId)) {
-                DB::connection($conn)->rollBack();
-
-                return back()->withErrors([
-                    'timbres' => 'No se pudo resolver la cuenta admin para consumir timbres.',
-                ]);
-            }
-
-            $adminAccount = DB::connection('mysql_admin')
-                ->table('accounts')
-                ->where('id', (int) $adminAccountId)
-                ->lockForUpdate()
-                ->first(['id', 'meta']);
-
-            if (! $adminAccount) {
-                DB::connection($conn)->rollBack();
-
-                return back()->withErrors([
-                    'timbres' => 'La cuenta admin no existe para validar timbres.',
-                ]);
-            }
-
-            $meta = [];
-            if (! empty($adminAccount->meta)) {
-                $decoded = json_decode((string) $adminAccount->meta, true);
-                $meta = is_array($decoded) ? $decoded : [];
-            }
-
-            $asignados = (int) data_get($meta, 'facturotopia.timbres.asignados', 0);
-            $consumidos = (int) data_get($meta, 'facturotopia.timbres.consumidos', 0);
-            $disponibles = max(0, $asignados - $consumidos);
-
-            if ($disponibles <= 0) {
-                DB::connection($conn)->rollBack();
-
-                return back()->withErrors([
-                    'timbres' => 'No hay timbres disponibles para timbrar este CFDI.',
-                ]);
-            }
-
-            $uuid = (string) $item->uuid;
-
-            $payload = [
-                'estatus' => 'timbrado',
-                'updated_at' => now(),
+        if ($iva > 0) {
+            $item['Impuestos'] = [
+                'Traslados' => [
+                    'Traslado' => [[
+                        'Base' => number_format($importe, 2, '.', ''),
+                        'Impuesto' => '002',
+                        'TipoFactor' => 'Tasa',
+                        'TasaOCuota' => '0.160000',
+                        'Importe' => number_format($iva, 2, '.', ''),
+                    ]],
+                ],
             ];
+        }
 
-            if ($this->hasColumn($table, 'uuid', $conn) && str_starts_with($uuid, 'BORRADOR-')) {
-                $uuid = strtoupper((string) Str::uuid());
-                $payload['uuid'] = $uuid;
+        $payload['Conceptos']['Concepto'][] = $item;
+    }
+
+    $ivaTotal = (float) ($cfdi->iva ?? 0);
+
+    if ($ivaTotal > 0) {
+        $payload['Impuestos'] = [
+            'TotalImpuestosTrasladados' => number_format($ivaTotal, 2, '.', ''),
+            'Traslados' => [
+                'Traslado' => [[
+                    'Base' => number_format((float) ($cfdi->subtotal ?? 0), 2, '.', ''),
+                    'Impuesto' => '002',
+                    'TipoFactor' => 'Tasa',
+                    'TasaOCuota' => '0.160000',
+                    'Importe' => number_format($ivaTotal, 2, '.', ''),
+                ]],
+            ],
+        ];
+    }
+
+    return $payload;
+}
+
+protected function resolveFacturotopiaEmisorId($cfdi): string
+{
+    $credentialId = $cfdi->emisor_credential_id ?? null;
+
+    if ($credentialId) {
+        try {
+            $credential = SatCredential::query()->where('id', $credentialId)->first();
+
+            if ($credential) {
+                $meta = is_array($credential->meta ?? null)
+                    ? $credential->meta
+                    : (json_decode((string) ($credential->meta ?? ''), true) ?: []);
+
+                foreach ([
+                    'facturotopia.id',
+                    'facturotopia.emisor_id',
+                    'facturotopiaEmisorId',
+                    'pactopia.emisor_id',
+                    'pactopia_id',
+                    'emisor_id',
+                ] as $key) {
+                    $value = data_get($meta, $key);
+
+                    if (! empty($value)) {
+                        return (string) $value;
+                    }
+                }
             }
-
-            if ($this->hasColumn($table, 'fecha_timbrado', $conn)) {
-                $payload['fecha_timbrado'] = now();
-            }
-
-            DB::connection($conn)
-                ->table($table)
-                ->where('id', $item->id)
-                ->update($payload);
-
-            data_set($meta, 'facturotopia.timbres.consumidos', $consumidos + 1);
-            data_set($meta, 'facturotopia.timbres.ultimo_consumo_at', now()->toDateTimeString());
-            data_set($meta, 'facturotopia.timbres.ultimo_uuid', $uuid);
-            data_set($meta, 'facturotopia.timbres.ultimo_cfdi_id', $item->id);
-
-            DB::connection('mysql_admin')
-                ->table('accounts')
-                ->where('id', (int) $adminAccount->id)
-                ->update([
-                    'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    'updated_at' => now(),
-                ]);
-
-            DB::connection($conn)->commit();
-
-            return redirect()
-                ->route('cliente.facturacion.index')
-                ->with('ok', 'CFDI timbrado internamente y timbre consumido correctamente.');
         } catch (\Throwable $e) {
-            try {
-                DB::connection($conn)->rollBack();
-            } catch (\Throwable $rollbackError) {
-                report($rollbackError);
-            }
-
             report($e);
-
-            return back()->withErrors([
-                'timbrado' => 'No se pudo timbrar el CFDI: ' . $e->getMessage(),
-            ]);
         }
     }
+
+    return (string) $credentialId;
+}
+
+protected function extractBase64FromPacResponse(array $data, string $body, array $keys): string
+{
+    foreach ($keys as $key) {
+        $value = data_get($data, $key);
+
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    if ($body !== '') {
+        $decoded = json_decode($body, true);
+
+        if (is_array($decoded)) {
+            foreach ($keys as $key) {
+                $value = data_get($decoded, $key);
+
+                if (is_string($value) && trim($value) !== '') {
+                    return trim($value);
+                }
+            }
+        }
+
+        if (base64_decode($body, true) !== false) {
+            return trim($body);
+        }
+    }
+
+    return '';
+}
+
+protected function extractCfdiTimbreData(string $xml): array
+{
+    $out = [
+        'uuid' => '',
+        'fecha_timbrado' => null,
+        'sello_cfd' => '',
+        'sello_sat' => '',
+        'no_certificado_sat' => '',
+        'no_certificado_cfd' => '',
+        'qr_url' => '',
+        'cadena_original' => '',
+    ];
+
+    try {
+        $sx = new \SimpleXMLElement($xml);
+
+        $namespaces = $sx->getNamespaces(true);
+
+        $out['sello_cfd'] = (string) ($sx['Sello'] ?? '');
+        $out['no_certificado_cfd'] = (string) ($sx['NoCertificado'] ?? '');
+
+        if (isset($namespaces['cfdi'])) {
+            $sx->registerXPathNamespace('cfdi', $namespaces['cfdi']);
+        }
+
+        if (isset($namespaces['tfd'])) {
+            $sx->registerXPathNamespace('tfd', $namespaces['tfd']);
+        } else {
+            $sx->registerXPathNamespace('tfd', 'http://www.sat.gob.mx/TimbreFiscalDigital');
+        }
+
+        $timbres = $sx->xpath('//tfd:TimbreFiscalDigital');
+
+        if ($timbres && isset($timbres[0])) {
+            $tfd = $timbres[0];
+
+            $out['uuid'] = strtoupper((string) ($tfd['UUID'] ?? ''));
+            $out['fecha_timbrado'] = (string) ($tfd['FechaTimbrado'] ?? '') ?: null;
+            $out['sello_sat'] = (string) ($tfd['SelloSAT'] ?? '');
+            $out['no_certificado_sat'] = (string) ($tfd['NoCertificadoSAT'] ?? '');
+
+            $total = (string) ($sx['Total'] ?? '0');
+            $emisorRfc = '';
+            $receptorRfc = '';
+
+            $emisores = $sx->xpath('//cfdi:Emisor');
+            if ($emisores && isset($emisores[0])) {
+                $emisorRfc = (string) ($emisores[0]['Rfc'] ?? '');
+            }
+
+            $receptores = $sx->xpath('//cfdi:Receptor');
+            if ($receptores && isset($receptores[0])) {
+                $receptorRfc = (string) ($receptores[0]['Rfc'] ?? '');
+            }
+
+            $fe = substr($out['sello_cfd'], -8);
+
+            $out['qr_url'] = 'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx'
+                . '?id=' . rawurlencode($out['uuid'])
+                . '&re=' . rawurlencode($emisorRfc)
+                . '&rr=' . rawurlencode($receptorRfc)
+                . '&tt=' . rawurlencode($total)
+                . '&fe=' . rawurlencode($fe);
+
+            $out['cadena_original'] = '||1.1|'
+                . $out['uuid'] . '|'
+                . $out['fecha_timbrado'] . '|'
+                . '|'
+                . $out['sello_cfd'] . '|'
+                . $out['no_certificado_sat'] . '||';
+        }
+    } catch (\Throwable $e) {
+        report($e);
+    }
+
+    return $out;
+}
 
     public function receptorShow(int $receptor): JsonResponse
     {
@@ -2119,4 +2540,76 @@ public function destroy(int $cfdi)
 
         return round((($now - $prev) / max($prev, 0.00001)) * 100, 2);
     }
+
+    protected function resolveAdminAccountIdFromCuenta(?object $cuenta): ?int
+{
+    if (! $cuenta || empty($cuenta->id)) {
+        return null;
+    }
+
+    if (! empty($cuenta->admin_account_id)) {
+        return (int) $cuenta->admin_account_id;
+    }
+
+    try {
+        if (! Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+            return null;
+        }
+
+        $row = DB::connection('mysql_clientes')
+            ->table('cuentas_cliente')
+            ->where('id', (string) $cuenta->id)
+            ->first(['id', 'admin_account_id', 'rfc', 'rfc_padre']);
+
+        if ($row && ! empty($row->admin_account_id)) {
+            return (int) $row->admin_account_id;
+        }
+    } catch (\Throwable $e) {
+        report($e);
+    }
+
+    return null;
+}
+
+public function facturotopiaTest(Request $request, FacturotopiaService $facturotopia): JsonResponse
+{
+    $cuenta = $this->currentCuenta();
+    $adminAccountId = $this->resolveAdminAccountIdFromCuenta($cuenta);
+
+    if (! $adminAccountId) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se pudo resolver la cuenta admin del cliente.',
+        ], 422);
+    }
+
+    $env = strtolower((string) $request->input('env', 'sandbox'));
+    $env = in_array($env, ['sandbox', 'production'], true) ? $env : 'sandbox';
+
+    try {
+        $result = $facturotopia->testConnection($adminAccountId, $env);
+
+        return response()->json([
+            'ok' => (bool) ($result['ok'] ?? false),
+            'message' => ! empty($result['ok'])
+                ? 'Conexión Facturotopia lista para Facturación.'
+                : 'Faltan datos para conectar Facturotopia.',
+            'env' => $result['env'] ?? $env,
+            'base_url' => $result['base_url'] ?? '',
+            'status' => $result['status'] ?? null,
+            'response_ms' => $result['response_ms'] ?? 0,
+            'has_api_key' => (bool) ($result['has_api_key'] ?? false),
+            'has_user' => (bool) ($result['has_user'] ?? false),
+            'has_password' => (bool) ($result['has_password'] ?? false),
+            'customer_id' => $result['customer_id'] ?? '',
+        ]);
+    } catch (\Throwable $e) {
+        report($e);
+
+        return response()->json([
+            'ok' => false,
+            'message' => 'Error al probar Facturotopia: ' . $e->getMessage(),
+        ], 500);
+    }
+}
 }
