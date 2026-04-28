@@ -29,7 +29,140 @@ class MiCuentaController extends Controller
 
         return view('cliente.mi_cuenta.index', [
             'modules' => $mods,
+            'facturotopiaConfig' => $this->loadFacturotopiaConfigForCurrentUser($request),
         ]);
+    }
+
+        private function loadFacturotopiaConfigForCurrentUser(Request $request): array
+    {
+        $user = auth('web')->user();
+        $cuenta = $user?->cuenta;
+
+        $empty = [
+            'configured' => false,
+            'admin_account_id' => null,
+            'status' => 'pendiente',
+            'env' => 'sandbox',
+            'customer_id' => '',
+            'user' => '',
+            'has_password' => false,
+            'sandbox_base_url' => '',
+            'sandbox_api_key_masked' => '',
+            'sandbox_has_api_key' => false,
+            'production_base_url' => '',
+            'production_api_key_masked' => '',
+            'production_has_api_key' => false,
+            'timbres_asignados' => 0,
+            'timbres_consumidos' => 0,
+            'hits_asignados' => 0,
+            'hits_consumidos' => 0,
+            'notes' => '',
+        ];
+
+        if (!$user || !$cuenta) {
+            return $empty;
+        }
+
+        $admConn = (string) (config('p360.conn.admin') ?: (env('P360_BILLING_SOT_CONN') ?: 'mysql_admin'));
+
+        [$adminAccountId] = $this->resolveAdminAccountId($request, $user, $cuenta, $admConn);
+
+        if (!$adminAccountId) {
+            return $empty;
+        }
+
+        try {
+            if (!Schema::connection($admConn)->hasTable('accounts')) {
+                return $empty;
+            }
+
+            $account = DB::connection($admConn)
+                ->table('accounts')
+                ->where('id', (string) $adminAccountId)
+                ->first(['id', 'meta']);
+
+            if (!$account) {
+                return $empty;
+            }
+
+            $meta = [];
+            if (!empty($account->meta)) {
+                $decoded = json_decode((string) $account->meta, true);
+                $meta = is_array($decoded) ? $decoded : [];
+            }
+
+            $ft = (array) data_get($meta, 'facturotopia', []);
+
+            return [
+                'configured' => !empty($ft),
+                'admin_account_id' => (string) $account->id,
+                'status' => (string) data_get($ft, 'status', 'pendiente'),
+                'env' => (string) data_get($ft, 'env', config('services.facturotopia.mode', 'sandbox')),
+                'customer_id' => (string) data_get($ft, 'customer_id', ''),
+                'user' => (string) data_get($ft, 'auth.user', ''),
+                'has_password' => filled((string) data_get($ft, 'auth.password_encrypted', '')),
+
+                'sandbox_base_url' => (string) (
+                    data_get($ft, 'sandbox.base_url')
+                    ?: data_get($ft, 'sandbox.base')
+                    ?: config('services.facturotopia.sandbox.base_url', config('services.facturotopia.sandbox.base', ''))
+                ),
+                'sandbox_api_key_masked' => $this->maskSecret((string) (
+                    data_get($ft, 'sandbox.api_key')
+                    ?: data_get($ft, 'sandbox.token')
+                    ?: config('services.facturotopia.sandbox.api_key', config('services.facturotopia.sandbox.token', ''))
+                )),
+                'sandbox_has_api_key' => filled((string) (
+                    data_get($ft, 'sandbox.api_key')
+                    ?: data_get($ft, 'sandbox.token')
+                    ?: config('services.facturotopia.sandbox.api_key', config('services.facturotopia.sandbox.token', ''))
+                )),
+
+                'production_base_url' => (string) (
+                    data_get($ft, 'production.base_url')
+                    ?: data_get($ft, 'production.base')
+                    ?: config('services.facturotopia.production.base_url', config('services.facturotopia.production.base', ''))
+                ),
+                'production_api_key_masked' => $this->maskSecret((string) (
+                    data_get($ft, 'production.api_key')
+                    ?: data_get($ft, 'production.token')
+                    ?: config('services.facturotopia.production.api_key', config('services.facturotopia.production.token', ''))
+                )),
+                'production_has_api_key' => filled((string) (
+                    data_get($ft, 'production.api_key')
+                    ?: data_get($ft, 'production.token')
+                    ?: config('services.facturotopia.production.api_key', config('services.facturotopia.production.token', ''))
+                )),
+
+                'timbres_asignados' => (int) data_get($ft, 'timbres.asignados', data_get($ft, 'timbres_asignados', 0)),
+                'timbres_consumidos' => (int) data_get($ft, 'timbres.consumidos', data_get($ft, 'timbres_consumidos', 0)),
+                'hits_asignados' => (int) data_get($ft, 'hits.asignados', data_get($ft, 'hits_asignados', 0)),
+                'hits_consumidos' => (int) data_get($ft, 'hits.consumidos', data_get($ft, 'hits_consumidos', 0)),
+                'notes' => (string) data_get($ft, 'notes', data_get($ft, 'notas', '')),
+            ];
+        } catch (Throwable $e) {
+            Log::warning('MiCuenta.facturotopiaConfig: error', [
+                'error' => $e->getMessage(),
+                'admin_account_id' => $adminAccountId,
+            ]);
+
+            return $empty;
+        }
+    }
+
+    private function maskSecret(?string $value): string
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        if (mb_strlen($value) <= 12) {
+            return str_repeat('•', max(6, mb_strlen($value)));
+        }
+
+        return mb_substr($value, 0, 8) . '••••••••' . mb_substr($value, -6);
     }
 
     /**

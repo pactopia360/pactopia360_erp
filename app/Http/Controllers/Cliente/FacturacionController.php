@@ -951,6 +951,18 @@ class FacturacionController extends Controller
             'conceptos.*.clave_producto_sat' => 'nullable|string|max:20',
             'conceptos.*.clave_unidad_sat' => 'nullable|string|max:20',
             'conceptos.*.objeto_impuesto' => 'nullable|string|max:10',
+                        'adenda_activa' => 'nullable|boolean',
+            'adenda_tipo' => 'nullable|string|max:80',
+            'adenda' => 'nullable|array',
+            'adenda.orden_compra' => 'nullable|string|max:120',
+            'adenda.numero_proveedor' => 'nullable|string|max:120',
+            'adenda.numero_tienda' => 'nullable|string|max:120',
+            'adenda.gln' => 'nullable|string|max:120',
+            'adenda.referencia_entrega' => 'nullable|string|max:160',
+            'adenda.contrato' => 'nullable|string|max:160',
+            'adenda.centro_costos' => 'nullable|string|max:160',
+            'adenda.fecha_entrega' => 'nullable|date',
+            'adenda.observaciones' => 'nullable|string|max:1000',
         ]);
 
         $cuenta = $this->currentCuenta();
@@ -1027,6 +1039,30 @@ class FacturacionController extends Controller
         $descuento = round($descuento, 2);
         $iva = round($iva, 2);
         $total = round($total, 2);
+
+        $adendaActiva = (bool) ($data['adenda_activa'] ?? false);
+        $adendaTipo = $adendaActiva ? trim((string) ($data['adenda_tipo'] ?? '')) : null;
+        $adendaData = $adendaActiva ? array_filter((array) ($data['adenda'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
+
+        if ($adendaActiva && $adendaTipo === '') {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'adenda_tipo' => 'Selecciona el tipo de adenda comercial.',
+                ]);
+        }
+
+        if ($adendaActiva && in_array($adendaTipo, ['walmart', 'soriana', 'liverpool', 'chedraui', 'amazon', 'mercado_libre', 'oxxo_femsa'], true)) {
+            if (empty($adendaData['orden_compra']) || empty($adendaData['numero_proveedor'])) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'adenda' => 'Para esta adenda captura orden de compra y número de proveedor.',
+                    ]);
+            }
+        }
+
+        $adendaXml = $adendaActiva ? $this->buildAdendaXml($adendaTipo, $adendaData) : null;
 
         $assistant = $this->fiscalAssistant([
             'rfc' => $receptor?->rfc,
@@ -1113,6 +1149,12 @@ class FacturacionController extends Controller
                 'ia_fiscal_nivel' => $assistant['nivel'],
                 'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
                 'observaciones' => $data['observaciones'] ?? null,
+                                'adenda_tipo' => $adendaTipo,
+                'adenda_json' => $adendaActiva ? json_encode([
+                    'tipo' => $adendaTipo,
+                    'datos' => $adendaData,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+                'adenda_xml' => $adendaXml,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -1520,6 +1562,10 @@ public function descargarZip(int $cfdi)
             $xmlBase64,
             $xmlTimbrado,
             $pdfBase64,
+            $adendaTipo,
+            $adendaData,
+            $adendaActiva,
+            $adendaXml,
             $timbre
         ) {
             DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
@@ -2611,5 +2657,51 @@ public function facturotopiaTest(Request $request, FacturotopiaService $facturot
             'message' => 'Error al probar Facturotopia: ' . $e->getMessage(),
         ], 500);
     }
+}
+
+protected function buildAdendaXml(?string $tipo, array $data): ?string
+{
+    $tipo = trim((string) $tipo);
+
+    if ($tipo === '' || empty($data)) {
+        return null;
+    }
+
+    $safeTipo = htmlspecialchars($tipo, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+
+    $nodes = '';
+
+    foreach ($data as $key => $value) {
+        if ($value === null || $value === '') {
+            continue;
+        }
+
+        $node = preg_replace('/[^A-Za-z0-9_]/', '_', (string) $key);
+        $text = htmlspecialchars((string) $value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+
+        $nodes .= "        <p360:Campo nombre=\"{$node}\" valor=\"{$text}\" />\n";
+    }
+
+    return <<<XML
+<cfdi:Addenda>
+    <p360:AdendaComercial xmlns:p360="https://pactopia360.com/adendas" tipo="{$safeTipo}">
+{$nodes}    </p360:AdendaComercial>
+</cfdi:Addenda>
+XML;
+}
+
+protected function injectAdendaIntoXml(string $xml, ?string $adendaXml): string
+{
+    $adendaXml = trim((string) $adendaXml);
+
+    if ($xml === '' || $adendaXml === '') {
+        return $xml;
+    }
+
+    if (str_contains($xml, '<cfdi:Addenda')) {
+        return $xml;
+    }
+
+    return preg_replace('/<\/cfdi:Comprobante>\s*$/', $adendaXml . "\n</cfdi:Comprobante>", $xml) ?: $xml;
 }
 }

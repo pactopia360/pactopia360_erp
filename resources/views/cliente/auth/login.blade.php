@@ -65,7 +65,6 @@
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Ir a pactopia.com"
-        title="pactopia.com"
       >
         <span class="pactopia-home-btn__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
@@ -78,8 +77,7 @@
       </a>
 
       <div class="login-brand">
-        <img class="brand-logo brand-logo--light" src="{{ asset($logoDark) }}" alt="Pactopia360">
-        <img class="brand-logo brand-logo--dark" src="{{ asset($logoLight) }}" alt="Pactopia360">
+        <img class="brand-logo" src="{{ asset($logoDark) }}" alt="Pactopia360">
         <div class="brand-subtitle">Portal usuario</div>
       </div>
 
@@ -88,15 +86,19 @@
         <h1 class="login-title">Hola! Bienvenido</h1>
 
         <p class="login-text">
-          Ingresa a tu portal para consultar información clave de tu operación con una experiencia más moderna, clara y rápida.
+          Accede a tu plataforma, gestiona y<br>
+          controla la operación de tu empresa.
         </p>
 
-        <ul class="login-mini-points">
-          <li>CFDI 4.0</li>
-          <li>Estado de cuenta</li>
-          <li>Bóveda XML</li>
-          <li>Acceso seguro</li>
-        </ul>
+        <div class="login-register">
+          <a href="https://pactopia.com/p360/create/" target="_blank">
+            ¿No tienes una cuenta?
+          </a>
+        </div>
+
+        <p class="login-text">
+         
+        </p>
 
         <div class="plans-box">
           <div class="plans-box__title">¿No tienes cuenta?</div>
@@ -150,10 +152,9 @@
         </div>
 
         <div class="auth-head">
-          <div class="auth-head__eyebrow">Bienvenido</div>
-          <h2 class="auth-head__title">Iniciar sesión</h2>
+          <h2 class="auth-head__title">Iniciar <br>
+           sesión</h2>
           <p class="auth-head__sub">
-            Ingresa <strong>tu correo o RFC</strong> y tu contraseña.
             <span id="detectMsg" class="hint" style="display:none;"></span>
           </p>
         </div>
@@ -212,7 +213,6 @@
 
         <div class="auth-form">
           <div class="field field-icon">
-            <label for="login">Correo electrónico o RFC</label>
             <div class="input-shell">
               <span class="input-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -238,7 +238,6 @@
           </div>
 
           <div class="field field-icon pwd-wrap">
-            <label for="password">Contraseña</label>
             <div class="input-shell">
               <span class="input-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -291,8 +290,14 @@
 
           <div class="auth-actions">
             <button class="btn-submit" id="btnSubmit" type="submit">Entrar</button>
-            <div class="hint hint-center">Al continuar aceptas las políticas de seguridad de Pactopia360.</div>
-          </div>
+
+            <div class="hint hint-center">
+              Al continuar acepto los 
+              <a href="https://pactopia.com/terminosycondiciones/" target="_blank" class="link-terms">
+                Términos y Condiciones
+              </a> de PACTOPIA.
+            </div>
+            </div>
 
           @if(app()->environment('local') && session('diag'))
             <details class="diag">
@@ -300,11 +305,6 @@
               <pre>{{ json_encode(session('diag'), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
             </details>
           @endif
-        </div>
-
-        <div class="mini-note-admin">
-          ¿Eres del equipo Pactopia?
-          <a href="{{ $adminLoginUrl }}">Ir a panel interno</a>
         </div>
       </form>
     </div>

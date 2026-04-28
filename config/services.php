@@ -144,4 +144,12 @@ return [
         'api_key_live' => (string) env('FACTUROTOPIA_API_KEY_LIVE', ''),
     ],
 
+            'endpoints' => [
+            'register_emisor' => env('FACTUROTOPIA_ENDPOINT_REGISTER_EMISOR', 'api/emisores'),
+            'timbrar_cfdi' => env('FACTUROTOPIA_ENDPOINT_TIMBRAR_CFDI', 'api/timbrado'),
+            'consultar_uuid' => env('FACTUROTOPIA_ENDPOINT_CONSULTAR_UUID', 'cfdi/{uuid}'),
+            'xml' => env('FACTUROTOPIA_ENDPOINT_XML', 'cfdi/{uuid}/xml'),
+            'pdf' => env('FACTUROTOPIA_ENDPOINT_PDF', 'cfdi/{uuid}/pdf'),
+        ],
+
 ];

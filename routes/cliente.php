@@ -582,6 +582,9 @@ Route::middleware(['auth:web', 'account.active'])
             Route::put('/{rfc}/series/{serie}', [ClienteRfcs::class, 'updateSerie'])->name('series.update');
 
             Route::delete('/{rfc}/series/{serie}', [ClienteRfcs::class, 'destroySerie'])->name('series.destroy');
+
+            Route::post('/{rfc}/facturotopia/sync', [ClienteRfcs::class, 'syncFacturotopia'])
+             ->name('facturotopia.sync');
         });
 
 

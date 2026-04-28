@@ -89,6 +89,8 @@
     'pdf_mostrar_telefono'         => (int)($cuenta->pdf_mostrar_telefono ?? 0),
   ];
 
+  $ft = is_array($facturotopiaConfig ?? null) ? $facturotopiaConfig : [];
+
   $errorBagKeys = $errors->keys();
 
   $openModalOnLoad = null;
@@ -340,6 +342,19 @@
           <b>›</b>
         </button>
 
+        <button type="button" class="mc-action-card-v9" data-open-config-modal data-mc-open-tab="facturotopia">
+          <span class="mc-action-icon blue">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+              <path d="M4 7h16v10H4V7Z" stroke="currentColor" stroke-width="2"/>
+              <path d="M8 11h8M8 15h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M17 4v3M7 4v3M17 17v3M7 17v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>Facturotopia / PAC</strong>
+          <small>Ambiente, timbres, API y estado operativo.</small>
+          <b>›</b>
+        </button>
+
         <a class="mc-action-card-v9" href="{{ $rtContratos ?: '#' }}">
           <span class="mc-action-icon orange">
             <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
@@ -373,7 +388,7 @@
       <button type="button" class="mc-tab is-active" data-mc-tab="brand">Personalización</button>
       <button type="button" class="mc-tab" data-mc-tab="profile">Perfil</button>
       <button type="button" class="mc-tab" data-mc-tab="security">Seguridad</button>
-      <button type="button" class="mc-tab" data-mc-tab="prefs">Preferencias</button>
+      <button type="button" class="mc-tab" data-mc-tab="facturotopia">Facturotopia</button>
     </div>
 
     <section class="mc-pane" data-mc-pane="brand">
@@ -572,6 +587,87 @@
             </div>
           @endif
         </form>
+      </div>
+    </section>
+
+        <section class="mc-pane" data-mc-pane="facturotopia" hidden>
+      <div class="mc-form-head" style="border-radius:14px;border:1px solid var(--mc-line);">
+        <h4 class="mc-form-title" style="font-size:.94rem;">
+          <span style="display:inline-flex;width:10px;height:10px;border-radius:999px;background:rgba(37,99,235,.75)"></span>
+          Facturotopia / API / Timbres
+        </h4>
+        <p class="mc-form-sub">
+          Configuración registrada por administración. Las API keys y contraseñas se muestran protegidas.
+        </p>
+      </div>
+
+      <div class="mc-two" style="margin-top:14px;">
+        <div class="mc-field">
+          <label class="mc-label">Estatus PAC</label>
+          <input class="mc-input" value="{{ strtoupper((string)($ft['status'] ?? 'pendiente')) }}" readonly>
+        </div>
+
+        <div class="mc-field">
+          <label class="mc-label">Ambiente activo</label>
+          <input class="mc-input" value="{{ strtoupper((string)($ft['env'] ?? 'sandbox')) }}" readonly>
+        </div>
+      </div>
+
+      <div class="mc-two" style="margin-top:.8rem;">
+        <div class="mc-field">
+          <label class="mc-label">Usuario PAC</label>
+          <input class="mc-input" value="{{ (string)($ft['user'] ?? '') ?: 'No configurado' }}" readonly>
+        </div>
+
+        <div class="mc-field">
+          <label class="mc-label">Contraseña PAC</label>
+          <input class="mc-input" value="{{ !empty($ft['has_password']) ? 'Configurada' : 'No configurada' }}" readonly>
+        </div>
+      </div>
+
+      <div class="mc-two" style="margin-top:.8rem;">
+        <div class="mc-field">
+          <label class="mc-label">Base URL pruebas</label>
+          <input class="mc-input" value="{{ (string)($ft['sandbox_base_url'] ?? '') ?: 'No configurada' }}" readonly>
+        </div>
+
+        <div class="mc-field">
+          <label class="mc-label">API key pruebas</label>
+          <input class="mc-input" value="{{ (string)($ft['sandbox_api_key_masked'] ?? '') ?: 'No configurada' }}" readonly>
+        </div>
+      </div>
+
+      <div class="mc-two" style="margin-top:.8rem;">
+        <div class="mc-field">
+          <label class="mc-label">Base URL producción</label>
+          <input class="mc-input" value="{{ (string)($ft['production_base_url'] ?? '') ?: 'No configurada' }}" readonly>
+        </div>
+
+        <div class="mc-field">
+          <label class="mc-label">API key producción</label>
+          <input class="mc-input" value="{{ (string)($ft['production_api_key_masked'] ?? '') ?: 'No configurada' }}" readonly>
+        </div>
+      </div>
+
+      <div class="mc-two" style="margin-top:.8rem;">
+        <div class="mc-field">
+          <label class="mc-label">Timbres</label>
+          <input class="mc-input" value="{{ number_format((int)($ft['timbres_consumidos'] ?? 0)) }} consumidos / {{ number_format((int)($ft['timbres_asignados'] ?? 0)) }} asignados" readonly>
+        </div>
+
+        <div class="mc-field">
+          <label class="mc-label">Hits API</label>
+          <input class="mc-input" value="{{ number_format((int)($ft['hits_consumidos'] ?? 0)) }} consumidos / {{ number_format((int)($ft['hits_asignados'] ?? 0)) }} asignados" readonly>
+        </div>
+      </div>
+
+      <div class="mc-field" style="margin-top:.8rem;">
+        <label class="mc-label">ID cliente Facturotopia</label>
+        <input class="mc-input" value="{{ (string)($ft['customer_id'] ?? '') ?: 'No configurado' }}" readonly>
+      </div>
+
+      <div class="mc-alert mc-alert-ok" style="margin-top:14px;">
+        Esta información viene del panel admin. Para modificar API keys, base URL, timbres o hits, actualízalo desde Admin &gt; Clientes.
       </div>
     </section>
   </div>

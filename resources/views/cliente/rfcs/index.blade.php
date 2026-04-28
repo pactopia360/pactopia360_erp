@@ -278,35 +278,48 @@
                                 </span>
                             </td>
 
-                            <td class="text-end">
-                                <div class="rfcs-actions">
-                                    <button type="button"
-                                            class="rfcs-icon-btn"
-                                            data-open-rfc-modal="edit"
-                                            data-rfc='@json($payload)'>
-                                        Editar
+                            <td class="text-end rfcs-actions-cell">
+                                <div class="rfcs-action-menu">
+                                    <button type="button" class="rfcs-dots-btn" data-rfcs-menu-toggle aria-label="Acciones">
+                                        <svg viewBox="0 0 24 24" fill="none">
+                                            <circle cx="5" cy="12" r="1.8" fill="currentColor"/>
+                                            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
+                                            <circle cx="19" cy="12" r="1.8" fill="currentColor"/>
+                                        </svg>
                                     </button>
 
-                                    <button type="button"
-                                            class="rfcs-icon-btn"
-                                            data-open-rfc-modal="certs"
-                                            data-rfc='@json($payload)'>
-                                        CSD/FIEL
-                                    </button>
-
-                                    <button type="button"
-                                            class="rfcs-icon-btn"
-                                            data-open-rfc-modal="series"
-                                            data-rfc='@json($payload)'>
-                                        Series
-                                    </button>
-
-                                    <form method="POST" action="{{ route('cliente.rfcs.toggle', $emisor->id) }}">
-                                        @csrf
-                                        <button type="submit" class="rfcs-icon-btn">
-                                            {{ $status === 'activo' ? 'Desactivar' : 'Activar' }}
+                                    <div class="rfcs-floating-menu" hidden>
+                                        <button type="button" class="rfcs-menu-item" data-open-rfc-modal="edit" data-rfc='@json($payload)'>
+                                            Editar
                                         </button>
-                                    </form>
+
+                                        <button type="button" class="rfcs-menu-item" data-open-rfc-modal="certs" data-rfc='@json($payload)'>
+                                            CSD / FIEL
+                                        </button>
+
+                                        <button type="button" class="rfcs-menu-item" data-open-rfc-modal="series" data-rfc='@json($payload)'>
+                                            Series
+                                        </button>
+
+                                        @if(Route::has('cliente.rfcs.facturotopia.sync'))
+                                            <form method="POST"
+                                                action="{{ route('cliente.rfcs.facturotopia.sync', $emisor->id) }}"
+                                                onsubmit="return confirm('¿Sincronizar este RFC con Facturotopia?');">
+                                                @csrf
+                                                <input type="hidden" name="env" value="sandbox">
+                                                <button type="submit" class="rfcs-menu-item">
+                                                    Sincronizar PAC
+                                                </button>
+                                            </form>
+                                        @endif
+
+                                        <form method="POST" action="{{ route('cliente.rfcs.toggle', $emisor->id) }}">
+                                            @csrf
+                                            <button type="submit" class="rfcs-menu-item danger">
+                                                {{ $status === 'activo' ? 'Desactivar' : 'Activar' }}
+                                            </button>
+                                        </form>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
@@ -334,4 +347,23 @@
 
 @push('scripts')
 <script src="{{ asset('assets/client/js/pages/rfcs.js') }}?v={{ time() }}"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('click', function (event) {
+        const toggle = event.target.closest('[data-rfcs-menu-toggle]');
+
+        document.querySelectorAll('.rfcs-floating-menu').forEach(function (menu) {
+            if (!toggle || !menu.parentElement.contains(toggle)) {
+                menu.hidden = true;
+            }
+        });
+
+        if (toggle) {
+            const menu = toggle.parentElement.querySelector('.rfcs-floating-menu');
+            if (menu) menu.hidden = !menu.hidden;
+        }
+    });
+});
+</script>
 @endpush

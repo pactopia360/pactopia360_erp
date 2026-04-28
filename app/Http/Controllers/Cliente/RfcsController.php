@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Services\Billing\FacturotopiaService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class RfcsController extends Controller
 {
@@ -529,4 +533,209 @@ class RfcsController extends Controller
             return false;
         }
     }
+
+    public function syncFacturotopia(Request $request, $rfc, FacturotopiaService $facturotopia)
+{
+    $credential = $this->findCredential($rfc);
+
+    $env = strtolower((string) $request->input('env', 'sandbox'));
+    $env = in_array($env, ['sandbox', 'production'], true) ? $env : 'sandbox';
+
+    $adminAccountId = $this->adminAccountId();
+
+    if (!$adminAccountId) {
+        return back()->withErrors([
+            'facturotopia' => 'No se pudo resolver la cuenta admin para conectar Facturotopia.',
+        ]);
+    }
+
+    $meta = $this->meta($credential);
+    $facturotopiaMeta = (array) data_get($meta, 'facturotopia', []);
+    $currentEmisorId = (string) data_get($facturotopiaMeta, "{$env}.emisor_id", data_get($facturotopiaMeta, 'emisor_id', ''));
+
+    $payload = $this->buildFacturotopiaEmisorPayload($credential);
+
+    try {
+        $result = $currentEmisorId !== ''
+            ? $facturotopia->actualizarEmisor($adminAccountId, $currentEmisorId, $payload, $env)
+            : $facturotopia->registerEmisor($adminAccountId, $payload, $env);
+
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+        if (!($result['ok'] ?? false)) {
+            Log::warning('Rfcs.facturotopia.sync.error', [
+                'rfc' => $credential->rfc,
+                'env' => $env,
+                'status' => $result['status'] ?? null,
+                'body' => $result['body'] ?? null,
+            ]);
+
+            return back()->withErrors([
+                'facturotopia' => 'Facturotopia rechazó el emisor. HTTP: ' . ($result['status'] ?? 'N/D') . '. ' . mb_substr((string) ($result['body'] ?? ''), 0, 250),
+            ]);
+        }
+
+        $emisorId = (string) (
+            data_get($data, 'id')
+            ?: data_get($data, 'emisor.id')
+            ?: data_get($data, 'data.id')
+            ?: data_get($data, 'result.id')
+            ?: $payload['id']
+        );
+
+        $facturotopiaMeta[$env] = array_merge((array) data_get($facturotopiaMeta, $env, []), [
+            'emisor_id' => $emisorId,
+            'synced_at' => now()->toDateTimeString(),
+            'status' => 'synced',
+            'last_http_status' => $result['status'] ?? null,
+        ]);
+
+        $facturotopiaMeta['emisor_id'] = $emisorId;
+        $facturotopiaMeta['env'] = $env;
+        $facturotopiaMeta['last_response'] = $data;
+
+        $meta['facturotopia'] = $facturotopiaMeta;
+        $meta['updated_at'] = now()->toDateTimeString();
+
+        $credential->meta = $meta;
+
+        if ($this->hasColumn('sat_credentials', 'estatus_operativo')) {
+            $credential->estatus_operativo = 'active';
+        }
+
+        $credential->save();
+
+        return back()->with('ok', 'RFC emisor sincronizado con Facturotopia correctamente.');
+    } catch (\Throwable $e) {
+        Log::error('Rfcs.facturotopia.sync.exception', [
+            'rfc' => $credential->rfc,
+            'env' => $env,
+            'error' => $e->getMessage(),
+        ]);
+
+        return back()->withErrors([
+            'facturotopia' => 'No se pudo sincronizar con Facturotopia: ' . $e->getMessage(),
+        ]);
+    }
+}
+
+private function buildFacturotopiaEmisorPayload(SatCredential $credential): array
+{
+    $meta = $this->meta($credential);
+    $fiscal = (array) data_get($meta, 'config_fiscal', []);
+    $direccion = (array) data_get($meta, 'direccion', []);
+
+    $rfc = strtoupper((string) $credential->rfc);
+    $razonSocial = trim((string) ($credential->razon_social ?: data_get($fiscal, 'nombre_comercial') ?: $rfc));
+    $regimen = (string) (data_get($fiscal, 'regimen_fiscal') ?: '601');
+    $email = (string) (data_get($fiscal, 'email') ?: data_get($meta, 'email.correo_facturacion') ?: 'soporte@pactopia.com');
+
+    $payload = [
+        'id' => (string) $credential->id,
+        'razon_social' => $razonSocial,
+        'grupo' => 'pactopia360',
+        'rfc' => $rfc,
+        'regimen' => is_numeric($regimen) ? (int) $regimen : $regimen,
+        'email' => $email,
+        'direccion' => [
+            'cp' => (string) (data_get($direccion, 'codigo_postal') ?: '00000'),
+            'direccion' => trim(implode(' ', array_filter([
+                data_get($direccion, 'calle'),
+                data_get($direccion, 'no_exterior'),
+                data_get($direccion, 'no_interior') ? 'Int. ' . data_get($direccion, 'no_interior') : null,
+                data_get($direccion, 'colonia') ? 'Col. ' . data_get($direccion, 'colonia') : null,
+            ]))) ?: 'Dirección no configurada',
+            'ciudad' => (string) (data_get($direccion, 'municipio') ?: 'Ciudad'),
+            'estado' => (string) (data_get($direccion, 'estado') ?: 'Estado'),
+        ],
+    ];
+
+    $certificados = $this->buildFacturotopiaCertificadosPayload($credential);
+
+    if (!empty($certificados)) {
+        $payload['certificados'] = $certificados;
+    }
+
+    return $payload;
+}
+
+private function buildFacturotopiaCertificadosPayload(SatCredential $credential): array
+{
+    $certificados = [];
+
+    $csdCerPath = (string) ($credential->csd_cer_path ?? '');
+    $csdKeyPath = (string) ($credential->csd_key_path ?? '');
+    $csdPassword = '';
+
+    if ($this->hasColumn('sat_credentials', 'csd_password_enc') && !empty($credential->csd_password_enc)) {
+        try {
+            $csdPassword = decrypt($credential->csd_password_enc);
+        } catch (\Throwable $e) {
+            $csdPassword = '';
+        }
+    }
+
+    if ($csdCerPath !== '' && Storage::disk('private')->exists($csdCerPath)) {
+        $certificados['csd_cer'] = base64_encode(Storage::disk('private')->get($csdCerPath));
+    }
+
+    if ($csdKeyPath !== '' && Storage::disk('private')->exists($csdKeyPath)) {
+        $certificados['csd_key'] = base64_encode(Storage::disk('private')->get($csdKeyPath));
+    }
+
+    if ($csdPassword !== '') {
+        $certificados['csd_password'] = $csdPassword;
+    }
+
+    return $certificados;
+}
+
+private function adminAccountId(): ?int
+{
+    $user = Auth::user();
+    $cuenta = $user?->cuenta;
+
+    if (!empty($cuenta?->admin_account_id)) {
+        return (int) $cuenta->admin_account_id;
+    }
+
+    foreach ([
+        'client.admin_account_id',
+        'admin_account_id',
+        'client.account_id',
+        'account_id',
+        'p360.account_id',
+    ] as $key) {
+        $value = session($key);
+        if (!empty($value) && is_numeric($value)) {
+            return (int) $value;
+        }
+    }
+
+    $cuentaId = (string) ($cuenta->id ?? $this->cuentaId());
+
+    if ($cuentaId === '') {
+        return null;
+    }
+
+    try {
+        if (Schema::connection('mysql_clientes')->hasTable('cuentas_cliente')) {
+            $row = DB::connection('mysql_clientes')
+                ->table('cuentas_cliente')
+                ->where('id', $cuentaId)
+                ->first(['admin_account_id']);
+
+            if ($row && !empty($row->admin_account_id)) {
+                return (int) $row->admin_account_id;
+            }
+        }
+    } catch (\Throwable $e) {
+        Log::warning('Rfcs.adminAccountId.error', [
+            'error' => $e->getMessage(),
+            'cuenta_id' => $cuentaId,
+        ]);
+    }
+
+    return null;
+}
 }

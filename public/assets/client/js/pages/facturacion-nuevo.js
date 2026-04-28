@@ -621,6 +621,57 @@ function onProductChange(idx, pid) {
     pill.classList.toggle('active', checkbox.checked);
   });
 
+    const adendaActiva = document.getElementById('adenda_activa');
+  const adendaBody = document.getElementById('adendaBody');
+  const adendaTipo = document.getElementById('adenda_tipo');
+  const adendaOrden = document.getElementById('adenda_orden_compra');
+  const adendaProveedor = document.getElementById('adenda_numero_proveedor');
+  const adendaHelp = document.getElementById('adendaHelp');
+
+  function syncAdenda() {
+    if (!adendaActiva || !adendaBody) return;
+
+    adendaBody.hidden = !adendaActiva.checked;
+
+    if (!adendaActiva.checked) {
+      if (adendaTipo) adendaTipo.value = '';
+      return;
+    }
+
+    const tipo = adendaTipo?.value || '';
+    const orden = adendaOrden?.value || '';
+    const proveedor = adendaProveedor?.value || '';
+
+    if (adendaHelp) {
+      if (!tipo) {
+        adendaHelp.textContent = 'Selecciona el tipo de adenda para activar los datos comerciales.';
+      } else if (!orden || !proveedor) {
+        adendaHelp.textContent = 'Para adendas corporativas se recomienda capturar orden de compra y número de proveedor.';
+      } else {
+        adendaHelp.textContent = 'Adenda lista para guardarse junto con el CFDI.';
+      }
+    }
+  }
+
+  adendaActiva?.addEventListener('change', function () {
+    syncAdenda();
+    updateAI();
+  });
+
+  adendaTipo?.addEventListener('change', function () {
+    syncAdenda();
+    updateAI();
+  });
+
+  document.querySelectorAll('[name^="adenda["]').forEach(function (field) {
+    field.addEventListener('input', function () {
+      syncAdenda();
+      updateAI();
+    });
+  });
+
+  syncAdenda();
+
   form.addEventListener('input', updateAI);
   form.addEventListener('change', updateAI);
 
@@ -642,10 +693,6 @@ function onProductChange(idx, pid) {
     }
   });
 
-  document.getElementById('btnTimbrar')?.addEventListener('click', function () {
-    updateAI();
-    alert('Timbrado pendiente de conectar con PAC/timbres. Primero guarda el borrador y después conectamos el flujo real.');
-  });
 
   const productModal = document.getElementById('productModal');
 const productList = document.getElementById('productList');

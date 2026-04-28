@@ -34,13 +34,32 @@ class FacturotopiaService
 
         try {
             $encrypted = (string) data_get($facturotopia, 'auth.password_encrypted', '');
-
             if ($encrypted !== '') {
                 $password = Crypt::decryptString($encrypted);
             }
         } catch (\Throwable $e) {
             $password = '';
         }
+
+        $baseUrl = (string) data_get(
+            $facturotopia,
+            "{$activeEnv}.base_url",
+            data_get(
+                $facturotopia,
+                "{$activeEnv}.base",
+                config("services.facturotopia.{$activeEnv}.base_url", config("services.facturotopia.{$activeEnv}.base", ''))
+            )
+        );
+
+        $apiKey = (string) data_get(
+            $facturotopia,
+            "{$activeEnv}.api_key",
+            data_get(
+                $facturotopia,
+                "{$activeEnv}.token",
+                config("services.facturotopia.{$activeEnv}.api_key", config("services.facturotopia.{$activeEnv}.token", ''))
+            )
+        );
 
         return [
             'account_id' => (int) $adminAccountId,
@@ -49,16 +68,8 @@ class FacturotopiaService
             'customer_id' => (string) data_get($facturotopia, 'customer_id', ''),
             'user' => (string) data_get($facturotopia, 'auth.user', ''),
             'password' => $password,
-            'base_url' => rtrim((string) data_get(
-                $facturotopia,
-                "{$activeEnv}.base_url",
-                config("services.facturotopia.{$activeEnv}.base_url", '')
-            ), '/'),
-            'api_key' => (string) data_get(
-                $facturotopia,
-                "{$activeEnv}.api_key",
-                config("services.facturotopia.{$activeEnv}.api_key", '')
-            ),
+            'base_url' => rtrim($baseUrl, '/'),
+            'api_key' => $apiKey,
         ];
     }
 
@@ -72,6 +83,9 @@ class FacturotopiaService
             ->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'X-API-KEY' => $apiKey,
+                'X-Tenant' => (string) ($config['customer_id'] ?? ''),
+                'X-Customer-ID' => (string) ($config['customer_id'] ?? ''),
+                'Customer-ID' => (string) ($config['customer_id'] ?? ''),
             ]);
     }
 
@@ -84,7 +98,11 @@ class FacturotopiaService
         }
 
         if (empty($config['api_key'])) {
-            throw new \RuntimeException('Facturotopia no tiene API key configurada para ' . ($config['env'] ?? 'sandbox') . '.');
+            throw new \RuntimeException('Facturotopia no tiene API key/token configurado para ' . ($config['env'] ?? 'sandbox') . '.');
+        }
+
+        if (empty($config['customer_id'])) {
+            throw new \RuntimeException('Facturotopia no tiene ID cliente configurado. Captúralo en Admin > Clientes > Facturotopia / API / Timbres.');
         }
 
         $url = $config['base_url'] . '/' . ltrim($endpoint, '/');
@@ -113,12 +131,12 @@ class FacturotopiaService
                 'has_password' => ! empty($config['password']),
                 'customer_id' => $config['customer_id'],
                 'status' => null,
-                'body' => 'Falta base_url o API key.',
+                'body' => 'Falta base_url o API key/token.',
+                'response_ms' => 0,
             ];
         }
 
         $startedAt = microtime(true);
-
         $response = $this->client($config)->get($config['base_url']);
 
         return [
@@ -137,8 +155,7 @@ class FacturotopiaService
 
     public function registerEmisor(int|string $adminAccountId, array $payload, ?string $env = null): array
     {
-        $endpoint = (string) config('services.facturotopia.endpoints.register_emisor', 'registrar-emisor');
-
+        $endpoint = (string) config('services.facturotopia.endpoints.register_emisor', 'api/emisores');
         $response = $this->request($adminAccountId, 'POST', $endpoint, $payload, $env);
 
         return [
@@ -149,9 +166,59 @@ class FacturotopiaService
         ];
     }
 
+    public function listEmisores(int|string $adminAccountId, ?string $env = null): array
+{
+    $endpoint = (string) config('services.facturotopia.endpoints.emisores_list', 'api/emisores');
+
+    $response = $this->request($adminAccountId, 'GET', $endpoint, [], $env);
+
+    return [
+        'ok' => $response->successful(),
+        'status' => $response->status(),
+        'data' => $response->json(),
+        'body' => $response->body(),
+    ];
+}
+
+public function consultarEmisor(int|string $adminAccountId, string $emisorId, ?string $env = null): array
+{
+    $endpoint = str_replace(
+        '{id}',
+        rawurlencode($emisorId),
+        (string) config('services.facturotopia.endpoints.emisor_show', 'api/emisores/{id}')
+    );
+
+    $response = $this->request($adminAccountId, 'GET', $endpoint, [], $env);
+
+    return [
+        'ok' => $response->successful(),
+        'status' => $response->status(),
+        'data' => $response->json(),
+        'body' => $response->body(),
+    ];
+}
+
+public function actualizarEmisor(int|string $adminAccountId, string $emisorId, array $payload, ?string $env = null): array
+{
+    $endpoint = str_replace(
+        '{id}',
+        rawurlencode($emisorId),
+        (string) config('services.facturotopia.endpoints.emisor_update', 'api/emisores/{id}')
+    );
+
+    $response = $this->request($adminAccountId, 'PUT', $endpoint, $payload, $env);
+
+    return [
+        'ok' => $response->successful(),
+        'status' => $response->status(),
+        'data' => $response->json(),
+        'body' => $response->body(),
+    ];
+}
+
     public function timbrarCfdi(int|string $adminAccountId, array $payload, ?string $env = null): array
     {
-        $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'timbrar-cfdi');
+        $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/timbrado');
 
         $response = $this->request($adminAccountId, 'POST', $endpoint, $payload, $env);
 
@@ -166,7 +233,6 @@ class FacturotopiaService
     public function consultarUuid(int|string $adminAccountId, string $uuid, ?string $env = null): array
     {
         $endpoint = str_replace('{uuid}', $uuid, (string) config('services.facturotopia.endpoints.consultar_uuid', 'cfdi/{uuid}'));
-
         $response = $this->request($adminAccountId, 'GET', $endpoint, [], $env);
 
         return [
@@ -180,14 +246,12 @@ class FacturotopiaService
     public function descargarXml(int|string $adminAccountId, string $uuid, ?string $env = null): Response
     {
         $endpoint = str_replace('{uuid}', $uuid, (string) config('services.facturotopia.endpoints.xml', 'cfdi/{uuid}/xml'));
-
         return $this->request($adminAccountId, 'GET', $endpoint, [], $env);
     }
 
     public function descargarPdf(int|string $adminAccountId, string $uuid, ?string $env = null): Response
     {
         $endpoint = str_replace('{uuid}', $uuid, (string) config('services.facturotopia.endpoints.pdf', 'cfdi/{uuid}/pdf'));
-
         return $this->request($adminAccountId, 'GET', $endpoint, [], $env);
     }
 }

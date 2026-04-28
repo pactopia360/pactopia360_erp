@@ -442,7 +442,7 @@ if ($cfdiCollection->isNotEmpty()) {
         </section>
 
         <section class="sat-clean-accordion" aria-label="Facturotopia PAC">
-    <details class="sat-clean-accordion__item" open>
+    <details class="sat-clean-accordion__item">
         <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
             <div class="sat-clean-accordion__bar-left">
                 <span class="sat-clean-accordion__bar-title">Facturotopia PAC</span>
@@ -511,7 +511,7 @@ if ($cfdiCollection->isNotEmpty()) {
 </section>
 
         <section class="sat-clean-accordion" aria-label="Emisión">
-            <details class="sat-clean-accordion__item" open>
+            <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
                     <div class="sat-clean-accordion__bar-left">
                         <span class="sat-clean-accordion__bar-title">Emisión</span>
@@ -543,6 +543,19 @@ if ($cfdiCollection->isNotEmpty()) {
                             <div class="fx360-tile__title">Nuevo CFDI</div>
                             <div class="fx360-tile__sub">Alta manual rápida para emisión puntual y control visual del flujo.</div>
                         </a>
+
+                        @if(Route::has('cliente.rfcs.index'))
+                            <a href="{{ route('cliente.rfcs.index') }}" class="fx360-tile">
+                                <div class="fx360-tile__ico">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M4 4h16v16H4z"/>
+                                        <path d="M8 8h8M8 12h8M8 16h5"/>
+                                    </svg>
+                                </div>
+                                <div class="fx360-tile__title">RFC / Emisores</div>
+                                <div class="fx360-tile__sub">Registra, consulta y sincroniza emisores con Facturotopia.</div>
+                            </a>
+                        @endif
 
                         @if($rtEmisores)
                             <a href="{{ $rtEmisores }}" class="fx360-tile">
@@ -587,7 +600,7 @@ if ($cfdiCollection->isNotEmpty()) {
         </section>
 
         <section class="sat-clean-accordion" aria-label="Borradores">
-    <details class="sat-clean-accordion__item" open>
+    <details class="sat-clean-accordion__item">
         <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
             <div class="sat-clean-accordion__bar-left">
                 <span class="sat-clean-accordion__bar-title">Borradores</span>
@@ -689,7 +702,7 @@ if ($cfdiCollection->isNotEmpty()) {
 </section>
 
         <section class="sat-clean-accordion" aria-label="Emitidos">
-            <details class="sat-clean-accordion__item" open>
+            <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
                     <div class="sat-clean-accordion__bar-left">
                         <span class="sat-clean-accordion__bar-title">Emitidos</span>
@@ -917,7 +930,7 @@ if ($cfdiCollection->isNotEmpty()) {
         </section>
 
         <section class="sat-clean-accordion" aria-label="Masivo y plantillas">
-            <details class="sat-clean-accordion__item" open>
+            <details class="sat-clean-accordion__item">
                 <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
                     <div class="sat-clean-accordion__bar-left">
                         <span class="sat-clean-accordion__bar-title">Masivo y plantillas</span>

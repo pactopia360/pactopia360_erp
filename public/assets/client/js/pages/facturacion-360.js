@@ -10,18 +10,14 @@
         root.classList.add('fx360-js-ready');
 
         var accordionItems = document.querySelectorAll('.sat-clean-accordion__item');
-        accordionItems.forEach(function (item) {
-            item.addEventListener('toggle', function () {
-                if (item.open) {
-                    item.classList.add('is-open');
-                } else {
-                    item.classList.remove('is-open');
-                }
-            });
 
-            if (item.open) {
-                item.classList.add('is-open');
-            }
+        accordionItems.forEach(function (item) {
+            item.open = false;
+            item.classList.remove('is-open');
+
+            item.addEventListener('toggle', function () {
+                item.classList.toggle('is-open', item.open);
+            });
         });
     });
 })();

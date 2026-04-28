@@ -180,17 +180,20 @@ body::after{
 
 .login-shell{
   min-height:100dvh;
-  display:grid;
-  place-items:center;
-  padding:28px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:clamp(10px, 2vh, 22px) clamp(10px, 2vw, 24px);
 }
 
 .login-wrap{
-  width:min(1120px, 100%);
-  min-height:640px;
+  width:min(980px, calc(100vw - 40px));
+  min-height:auto;
+  height:auto;
+  max-height:calc(100dvh - 40px);
   display:grid;
-  grid-template-columns:1.03fr .97fr;
-  border-radius:var(--radius-xl);
+  grid-template-columns:.95fr 1.05fr;
+  border-radius:26px;
   overflow:hidden;
   box-shadow:var(--shadow-shell);
   border:1px solid var(--glass-br);
@@ -202,13 +205,19 @@ body::after{
 /* LEFT */
 .login-left{
   position:relative;
-  padding:42px 28px 28px 28px;
+  padding:28px 26px 24px;
   background:
-    radial-gradient(420px 260px at 18% 16%, rgba(255,255,255,.18), transparent 58%),
+    radial-gradient(360px 220px at 18% 16%, rgba(255,255,255,.18), transparent 58%),
     linear-gradient(180deg, #5f7fd1 0%, #4d69c0 48%, #4660b5 100%);
+  
   display:flex;
   flex-direction:column;
-  isolation:isolate;
+  align-items:flex-start;   /* 👈 CLAVE */
+  text-align:left;          /* 👈 CLAVE */
+}
+
+.login-left *{
+  text-align:left !important;
 }
 
 .login-left__overlay{
@@ -479,7 +488,7 @@ body.theme-dark .login-brand{
 .login-title{
   margin:0 0 10px 0;
   max-width:340px;
-  font-size:clamp(56px, 5vw, 68px);
+  font-size:clamp(42px, 4.4vw, 68px);
   line-height:.90;
   letter-spacing:-.06em;
   font-weight:800;
@@ -635,11 +644,12 @@ body.theme-dark .login-brand{
 
 /* RIGHT */
 .login-right{
-  padding:34px 40px;
+  padding:28px 34px;
   background:linear-gradient(90deg, var(--right-bg-2) 0%, var(--right-bg-1) 100%);
   display:flex;
   align-items:center;
   justify-content:center;
+  min-width:0;
 }
 
 .auth-card{
@@ -729,7 +739,7 @@ body.theme-dark .theme-toggle__moon{
 
 .auth-head__title{
   margin:8px 0 0;
-  font-size:clamp(34px, 3vw, 46px);
+  font-size:clamp(30px, 3vw, 46px);
   line-height:.98;
   letter-spacing:-.05em;
   font-weight:800;
@@ -1072,17 +1082,61 @@ body.theme-dark .mini-note-admin a{
 }
 
 @media (max-width: 980px){
+  .login-shell{
+    align-items:center;
+    justify-items:center;
+    padding:16px;
+  }
+
   .login-wrap{
-    grid-template-columns:1fr;
+    width:min(720px, calc(100vw - 32px));
+    max-height:none;
     min-height:auto;
+    grid-template-columns:1fr;
   }
 
   .login-left{
+    min-height:auto;
     padding:28px 22px 22px 24px;
+  }
+
+  .login-left::before{
+    width:82px;
+    opacity:.55;
+  }
+
+  .login-brand{
+    margin:18px 0 20px 0;
+  }
+
+  .login-copy,
+  .login-foot{
+    margin-left:0;
+  }
+
+  .login-title{
+    font-size:clamp(38px, 8vw, 52px);
+    max-width:100%;
+  }
+
+  .login-text{
+    max-width:100%;
+    font-size:14px;
+    line-height:1.65;
+  }
+
+  .login-mini-points{
+    margin-top:20px;
+    gap:10px;
   }
 
   .plans-grid{
     grid-template-columns:1fr;
+  }
+
+  .login-foot{
+    margin-top:22px;
+    padding-top:18px;
   }
 
   .login-right{
@@ -1090,7 +1144,8 @@ body.theme-dark .mini-note-admin a{
   }
 
   .auth-card{
-    max-width:100%;
+    width:min(100%, 430px);
+    min-height:auto;
   }
 
   .pactopia-home-btn{
@@ -1099,102 +1154,1025 @@ body.theme-dark .mini-note-admin a{
     width:42px;
     height:42px;
   }
+}
+
+@media (max-width: 560px){
+  .login-shell{
+    min-height:100dvh;
+    padding:10px;
+  }
+
+  .login-wrap{
+    width:100%;
+    border-radius:18px;
+  }
+
+  .login-left{
+    padding:18px 16px;
+  }
+
+  .login-right{
+    padding:18px 16px 20px;
+  }
+
+  .pactopia-home-btn{
+    top:12px;
+    left:12px;
+    width:38px;
+    height:38px;
+  }
+
+  .pactopia-home-btn__icon,
+  .pactopia-home-btn__icon svg{
+    width:17px;
+    height:17px;
+  }
+
+  .pactopia-home-btn__tooltip{
+    display:none;
+  }
 
   .login-brand{
-    margin:18px 0 24px 0;
+    margin:14px 0 18px 0;
+    padding:0;
+    border-radius:0;
+  }
+
+  .brand-logo{
+    max-width:190px;
+    max-height:42px;
+  }
+
+  .brand-subtitle{
+    font-size:12px;
+    line-height:1.1;
+  }
+
+  .login-copy{
+    max-width:100%;
+    margin-top:12px;
+  }
+
+  .login-title{
+    font-size:clamp(34px, 12vw, 44px);
+    line-height:.94;
+    max-width:100%;
+  }
+
+  .login-text{
+    font-size:13px;
+    line-height:1.55;
+  }
+
+  .login-mini-points{
+    margin-top:16px;
+    gap:9px;
+  }
+
+  .login-mini-points li{
+    font-size:13px;
+  }
+
+  .login-foot{
+    margin-top:18px;
+    padding-top:14px;
+    font-size:11px;
+  }
+
+  .auth-toolbar{
+    margin-bottom:6px;
+  }
+
+  .theme-toggle{
+    width:38px;
+    height:38px;
+    min-width:38px;
+    justify-self:end;
+  }
+
+  .auth-head{
+    margin-bottom:18px;
+  }
+
+  .auth-head__title{
+    font-size:30px;
+  }
+
+  .auth-head__sub{
+    font-size:13px;
+    line-height:1.45;
+  }
+
+  .auth-form{
+    gap:12px;
+  }
+
+  .input{
+    height:44px;
+    font-size:13px;
+  }
+
+  .btn-submit{
+    height:48px;
+    border-radius:14px;
+    font-size:15px;
+  }
+
+  .mini-note-admin{
+    padding-top:14px;
+    font-size:10.5px;
+  }
+}
+@media (min-width: 981px){
+  .login-wrap{
+    transform:scale(.86);
+    transform-origin:center;
+  }
+}
+
+@media (min-width: 1400px){
+  .login-wrap{
+    transform:scale(.82);
+  }
+}
+
+@media (max-width: 980px){
+  .login-wrap{
+    width:min(620px, calc(100vw - 28px));
+    max-height:none;
+    grid-template-columns:1fr;
+    transform:none;
   }
 }
 
 @media (max-width: 560px){
   .login-shell{
-    padding:14px;
+    padding:10px;
   }
 
   .login-wrap{
-    border-radius:20px;
+    width:100%;
+    border-radius:18px;
   }
-
-  .login-left,
-  .login-right{
-    padding:20px 16px;
-  }
-
-  .login-right{
-    padding:20px 16px 22px;
-  }
-
-  .brand-logo{
-    max-width:220px;
-    max-height:46px;
-  }
-
-  .brand-subtitle{
-    font-size:13px;
-    line-height:1.1;
-  }
-
-  .login-title{
-    font-size:clamp(42px, 12vw, 52px);
-    line-height:.92;
-    max-width:100%;
-    white-space:normal;
-  }
-
-  .auth-head__title{
-    font-size:34px;
-  }
-
-  .plans-box{
-    padding:14px;
-  }
-
-  .theme-toggle{
-    width:42px;
-    min-width:42px;
-    justify-self:end;
-  }
-
-  .login-brand{
-  padding:12px 14px;
-  border-radius:16px;
 }
 
-.brand-logo{
-  max-width:240px;
-  max-height:56px;
-}
+/* =========================================================
+   LOGIN LEFT - ALINEACIÓN FINAL IZQUIERDA
+========================================================= */
 
-.login-copy{
-  max-width:100%;
-  margin-top:18px;
-}
-
-.login-copy,
-.login-foot{
-  padding-left:0;
-}
-
-.pactopia-home-btn{
-  top:14px;
-  left:14px;
-  width:40px;
-  height:40px;
-}
-
-.pactopia-home-btn__tooltip{
-  left:50px;
-  font-size:11px;
-  padding:7px 9px;
-}
-
-.login-brand{
-  margin:16px 0 22px 0;
+.login-left{
+  align-items:flex-start !important;
+  text-align:left !important;
 }
 
 .login-brand,
 .login-copy,
 .login-foot{
-  margin-left:14px;
+  margin-left:32px !important;
+  margin-right:32px !important;
+  text-align:left !important;
 }
 
+.login-brand{
+  align-items:flex-start !important;
+}
+
+.brand-logo,
+.brand-subtitle,
+.login-title,
+.login-text,
+.login-mini-points,
+.login-mini-points li,
+.login-foot{
+  text-align:left !important;
+}
+
+.login-copy{
+  max-width:420px !important;
+}
+
+.login-title{
+  max-width:420px !important;
+}
+
+.login-text{
+  max-width:390px !important;
+}
+
+.login-mini-points{
+  justify-items:start !important;
+  align-items:start !important;
+}
+
+@media (max-width: 980px){
+  .login-brand,
+  .login-copy,
+  .login-foot{
+    margin-left:0 !important;
+    margin-right:0 !important;
+  }
+
+  .login-copy,
+  .login-title,
+  .login-text{
+    max-width:100% !important;
+  }
+}
+
+/* =========================================================
+   LOGIN LEFT - ALINEACIÓN COMPACTA FINAL
+========================================================= */
+
+.login-left{
+  align-items:flex-start !important;
+  text-align:left !important;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:100% !important;
+  max-width:360px !important;
+  margin-left:42px !important;
+  margin-right:0 !important;
+  text-align:left !important;
+}
+
+.login-brand{
+  margin-top:4px !important;
+  margin-bottom:22px !important;
+  align-items:flex-start !important;
+}
+
+.brand-logo{
+  display:block !important;
+  max-width:220px !important;
+  margin:0 !important;
+}
+
+.brand-subtitle{
+  margin-top:10px !important;
+  font-size:14px !important;
+  line-height:1.2 !important;
+  text-align:left !important;
+}
+
+.login-copy{
+  margin-top:0 !important;
+}
+
+.login-title{
+  max-width:360px !important;
+  font-size:clamp(42px, 4vw, 58px) !important;
+  line-height:.92 !important;
+  letter-spacing:-.055em !important;
+  text-align:left !important;
+}
+
+.login-text{
+  max-width:340px !important;
+  font-size:14px !important;
+  line-height:1.55 !important;
+  text-align:left !important;
+}
+
+.login-mini-points{
+  max-width:340px !important;
+  margin-top:20px !important;
+  padding-left:0 !important;
+  list-style:none !important;
+  text-align:left !important;
+}
+
+.login-mini-points li{
+  justify-content:flex-start !important;
+  text-align:left !important;
+  font-size:14px !important;
+  line-height:1.2 !important;
+}
+
+.login-foot{
+  margin-top:auto !important;
+  padding-top:18px !important;
+  font-size:11px !important;
+  line-height:1.35 !important;
+  text-align:left !important;
+}
+
+@media (max-width: 980px){
+  .login-brand,
+  .login-copy,
+  .login-foot{
+    max-width:100% !important;
+    margin-left:0 !important;
+  }
+
+  .login-title{
+    max-width:100% !important;
+    font-size:clamp(36px, 8vw, 48px) !important;
+  }
+
+  .login-text{
+    max-width:100% !important;
+  }
+}
+
+/* =========================================================
+   LOGIN LEFT - LOGO ÚNICO Y ALINEACIÓN FINAL
+========================================================= */
+
+.login-left{
+  align-items:flex-start !important;
+  text-align:left !important;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:100% !important;
+  max-width:370px !important;
+  margin-left:46px !important;
+  margin-right:0 !important;
+  text-align:left !important;
+}
+
+.login-brand{
+  margin-top:18px !important;
+  margin-bottom:24px !important;
+  gap:12px !important;
+}
+
+.brand-logo{
+  display:block !important;
+  width:auto !important;
+  max-width:225px !important;
+  max-height:46px !important;
+  margin:0 !important;
+  object-fit:contain !important;
+  object-position:left center !important;
+}
+
+.brand-logo--light,
+.brand-logo--dark{
+  display:none !important;
+}
+
+.brand-subtitle{
+  margin:0 !important;
+  font-size:14px !important;
+  line-height:1.2 !important;
+  text-align:left !important;
+}
+
+.login-copy{
+  margin-top:0 !important;
+}
+
+.login-title{
+  max-width:370px !important;
+  font-size:52px !important;
+  line-height:.92 !important;
+  text-align:left !important;
+}
+
+.login-text{
+  max-width:350px !important;
+  font-size:14px !important;
+  line-height:1.55 !important;
+  text-align:left !important;
+}
+
+.login-mini-points{
+  max-width:350px !important;
+  padding-left:0 !important;
+  text-align:left !important;
+}
+
+.login-mini-points li{
+  justify-content:flex-start !important;
+  text-align:left !important;
+  font-size:14px !important;
+}
+
+.login-foot{
+  font-size:11px !important;
+  line-height:1.35 !important;
+  text-align:left !important;
+}
+
+/* =========================================================
+   LOGIN LEFT - ALINEACIÓN ÚNICA DEFINITIVA
+========================================================= */
+
+.login-left{
+  --login-left-x: 48px;
+  align-items:flex-start !important;
+  text-align:left !important;
+  padding-left:0 !important;
+  padding-right:0 !important;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:calc(100% - var(--login-left-x) - 28px) !important;
+  max-width:none !important;
+  margin-left:var(--login-left-x) !important;
+  margin-right:28px !important;
+  text-align:left !important;
+}
+
+.login-brand{
+  margin-top:24px !important;
+  margin-bottom:28px !important;
+}
+
+.brand-logo{
+  display:block !important;
+  width:210px !important;
+  max-width:210px !important;
+  height:auto !important;
+  margin:0 !important;
+  object-fit:contain !important;
+  object-position:left center !important;
+}
+
+.brand-subtitle{
+  margin:12px 0 0 0 !important;
+  padding:0 !important;
+  text-align:left !important;
+}
+
+.login-title,
+.login-text,
+.login-mini-points,
+.login-mini-points li,
+.login-foot{
+  margin-left:0 !important;
+  padding-left:0 !important;
+  text-align:left !important;
+}
+
+.login-title{
+  max-width:100% !important;
+  font-size:50px !important;
+  line-height:.92 !important;
+}
+
+.login-text{
+  max-width:100% !important;
+  font-size:14px !important;
+  line-height:1.55 !important;
+}
+
+.login-mini-points{
+  margin-top:22px !important;
+  list-style:none !important;
+}
+
+.login-mini-points li{
+  justify-content:flex-start !important;
+}
+
+.login-foot{
+  margin-top:auto !important;
+  padding-top:18px !important;
+  font-size:11px !important;
+  line-height:1.3 !important;
+}
+
+@media (max-width: 980px){
+  .login-left{
+    --login-left-x: 24px;
+  }
+}
+
+@media (max-width: 560px){
+  .login-left{
+    --login-left-x: 18px;
+  }
+
+  .login-title{
+    font-size:38px !important;
+  }
+}
+
+/* =========================================================
+   LOGIN LEFT - AJUSTE FINAL LOGO + FOOTER
+========================================================= */
+
+.login-left{
+  --left-x: 82px;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:calc(100% - var(--login-left-x) - 42px) !important;
+  margin-left:var(--login-left-x) !important;
+  margin-right:42px !important;
+}
+
+.login-brand{
+  margin-top:44px !important;
+  margin-bottom:28px !important;
+}
+
+.brand-logo{
+  width:205px !important;
+  max-width:205px !important;
+}
+
+.login-foot{
+  margin-top:auto !important;
+  padding-top:18px !important;
+  padding-bottom:0 !important;
+  border-top:1px solid rgba(255,255,255,.14) !important;
+  font-size:11px !important;
+  line-height:1.35 !important;
+  text-align:left !important;
+}
+
+.login-foot,
+.login-foot *{
+  text-align:left !important;
+}
+
+@media (max-width: 560px){
+  .login-left{
+    --login-left-x: 26px;
+  }
+
+  .login-brand{
+    margin-top:42px !important;
+  }
+}
+/* Mover solo el logo PACTOPIA a la izquierda */
+.login-brand .brand-logo{
+  transform:translateX(-10px) !important;
+}
+
+/* =========================================================
+   LOGIN TOP BUTTONS - HOME Y TEMA ALINEADOS
+========================================================= */
+
+.pactopia-home-btn,
+.theme-toggle{
+  width:46px !important;
+  height:46px !important;
+  min-width:46px !important;
+  min-height:46px !important;
+}
+
+.pactopia-home-btn{
+  top:22px !important;
+  left:22px !important;
+}
+
+.auth-toolbar{
+  position:absolute !important;
+  top:22px !important;
+  right:22px !important;
+  margin:0 !important;
+  display:flex !important;
+  justify-content:flex-end !important;
+  align-items:center !important;
+  z-index:5 !important;
+}
+
+.login-right{
+  position:relative !important;
+}
+
+@media (max-width: 560px){
+  .pactopia-home-btn,
+  .theme-toggle{
+    width:40px !important;
+    height:40px !important;
+    min-width:40px !important;
+    min-height:40px !important;
+  }
+
+  .pactopia-home-btn{
+    top:14px !important;
+    left:14px !important;
+  }
+
+  .auth-toolbar{
+    top:14px !important;
+    right:14px !important;
+  }
+}
+
+/* =========================================================
+   LOGIN LEFT - ALINEACIÓN FINAL SEGÚN GUÍA
+========================================================= */
+
+.login-left{
+  --left-x: 52px;
+  --right-safe: 42px;
+  padding:0 !important;
+  align-items:flex-start !important;
+  text-align:left !important;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:calc(100% - var(--left-x) - var(--right-safe)) !important;
+  margin-left:var(--left-x) !important;
+  margin-right:var(--right-safe) !important;
+  max-width:none !important;
+  text-align:left !important;
+}
+
+.login-brand{
+  margin-top:56px !important;
+  margin-bottom:22px !important;
+  gap:6px !important;
+}
+
+.brand-logo{
+  display:block !important;
+  width:205px !important;
+  max-width:205px !important;
+  height:auto !important;
+  margin:0 !important;
+  transform:none !important;
+  object-fit:contain !important;
+  object-position:left center !important;
+}
+
+.brand-subtitle{
+  margin:6px 0 0 0 !important;
+  padding:0 !important;
+  font-size:12px !important;
+  line-height:1.1 !important;
+  text-align:left !important;
+}
+
+.login-copy{
+  margin-top:0 !important;
+}
+
+.login-title{
+  margin:0 !important;
+  max-width:100% !important;
+  font-size:48px !important;
+  line-height:.90 !important;
+  letter-spacing:-.055em !important;
+  text-align:left !important;
+}
+
+.login-text{
+  margin-top:14px !important;
+  max-width:360px !important;
+  font-size:13px !important;
+  line-height:1.5 !important;
+  text-align:left !important;
+}
+
+.login-mini-points{
+  margin-top:24px !important;
+  padding-left:0 !important;
+  list-style:none !important;
+  text-align:left !important;
+}
+
+.login-mini-points li{
+  justify-content:flex-start !important;
+  text-align:left !important;
+  font-size:13px !important;
+  line-height:1.15 !important;
+}
+
+.login-foot{
+  margin-top:auto !important;
+  margin-bottom:20px !important;
+  padding-top:18px !important;
+  border-top:1px solid rgba(255,255,255,.14) !important;
+  font-size:10.5px !important;
+  line-height:1.25 !important;
+  text-align:left !important;
+}
+
+.login-foot,
+.login-foot *{
+  text-align:left !important;
+}
+
+@media (max-width: 980px){
+  .login-left{
+    --left-x: 34px;
+    --right-safe: 28px;
+  }
+
+  .login-brand{
+    margin-top:54px !important;
+  }
+
+  .login-title{
+    font-size:42px !important;
+  }
+
+  .login-text{
+    max-width:100% !important;
+  }
+}
+
+@media (max-width: 560px){
+  .login-left{
+    --left-x: 22px;
+    --right-safe: 18px;
+  }
+
+  .login-brand{
+    margin-top:50px !important;
+  }
+
+  .brand-logo{
+    width:180px !important;
+    max-width:180px !important;
+  }
+
+  .login-title{
+    font-size:36px !important;
+  }
+}
+
+/* =========================================================
+   LOGIN LEFT - AJUSTE PORTAL USUARIO + TEXTOS MÁS GRANDES
+========================================================= */
+
+.login-brand{
+  margin-bottom:24px !important;
+  gap:0 !important;
+}
+
+.brand-subtitle{
+  margin-top:2px !important;
+  font-size:14px !important;
+  line-height:1 !important;
+  font-weight:800 !important;
+}
+
+.login-title{
+  font-size:54px !important;
+  line-height:.90 !important;
+}
+
+.login-text{
+  max-width:390px !important;
+  font-size:15px !important;
+  line-height:1.55 !important;
+}
+
+.login-mini-points{
+  margin-top:26px !important;
+}
+
+.login-mini-points li{
+  font-size:15px !important;
+  line-height:1.2 !important;
+}
+
+.login-foot{
+  font-size:11.5px !important;
+}
+
+/* =========================================================
+   LOGIN LEFT - BLOQUE AZUL FINAL ALINEADO DESPUÉS DE HOME
+========================================================= */
+
+.login-left{
+  --left-x: 85px;
+  --right-safe: 36px;
+  padding:0 !important;
+  align-items:flex-start !important;
+  text-align:left !important;
+}
+
+.login-brand,
+.login-copy,
+.login-foot{
+  width:calc(100% - var(--left-x) - var(--right-safe)) !important;
+  max-width:none !important;
+  margin-left:var(--left-x) !important;
+  margin-right:var(--right-safe) !important;
+  text-align:left !important;
+}
+
+.login-brand{
+  margin-top:56px !important;
+  margin-bottom:24px !important;
+  gap:0 !important;
+}
+
+.brand-logo{
+  display:block !important;
+  width:260px !important;
+  max-width:260px !important;
+  height:auto !important;
+  margin:0 !important;
+  transform:none !important;
+  object-fit:contain !important;
+  object-position:left center !important;
+}
+
+.brand-subtitle{
+  margin:3px 0 0 0 !important;
+  padding:0 !important;
+  font-size:14px !important;
+  line-height:1 !important;
+  font-weight:800 !important;
+  text-align:left !important;
+}
+
+.login-copy{
+  margin-top:0 !important;
+}
+
+.login-title{
+  margin:0 !important;
+  max-width:100% !important;
+  font-size:54px !important;
+  line-height:.90 !important;
+  letter-spacing:-.055em !important;
+  text-align:left !important;
+}
+
+.login-text{
+  margin-top:16px !important;
+  max-width:390px !important;
+  font-size:15px !important;
+  line-height:1.55 !important;
+  text-align:left !important;
+}
+
+.login-mini-points{
+  margin-top:26px !important;
+  padding-left:0 !important;
+  list-style:none !important;
+  text-align:left !important;
+}
+
+.login-mini-points li{
+  justify-content:flex-start !important;
+  text-align:left !important;
+  font-size:15px !important;
+  line-height:1.2 !important;
+}
+
+.login-foot{
+  margin-top:auto !important;
+  margin-bottom:20px !important;
+  padding-top:18px !important;
+  border-top:1px solid rgba(255,255,255,.14) !important;
+  font-size:11.5px !important;
+  line-height:1.35 !important;
+  text-align:left !important;
+}
+
+.login-foot,
+.login-foot *{
+  text-align:left !important;
+}
+
+@media (max-width: 980px){
+  .login-left{
+    --left-x: 52px;
+    --right-safe: 28px;
+  }
+
+  .login-brand{
+    margin-top:54px !important;
+  }
+
+  .login-title{
+    font-size:46px !important;
+  }
+
+  .login-text{
+    max-width:100% !important;
+  }
+}
+
+@media (max-width: 560px){
+  .login-left{
+    --left-x: 34px;
+    --right-safe: 18px;
+  }
+
+  .login-brand{
+    margin-top:50px !important;
+  }
+
+  .brand-logo{
+    width:180px !important;
+    max-width:180px !important;
+  }
+
+  .login-title{
+    font-size:38px !important;
+  }
+}
+
+/* Logo Pactopia más grande real */
+.login-brand{
+  overflow:visible !important;
+}
+
+.login-brand .brand-logo{
+  width:250px !important;
+  max-width:250px !important;
+  height:auto !important;
+  max-height:none !important;
+  min-height:auto !important;
+  object-fit:contain !important;
+}
+
+.brand-subtitle{
+  margin-top:-8px !important;
+  font-size:20px !important;
+  font-weight:400 !important;
+  letter-spacing:0.5px !important;
+}
+
+.login-title{
+  margin:18px 0 0 0 !important;
+  max-width:100% !important;
+  font-size:60px !important;
+  line-height:.92 !important;
+  letter-spacing:-.05em !important;
+  text-align:left !important;
+}
+
+.login-foot{
+  width:100% !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+  text-align:center !important;
+}
+
+.login-foot,
+.login-foot *{
+  text-align:center !important;
+}
+
+.login-text{
+  margin-top:16px !important;
+  max-width:380px !important;
+  font-size:15px !important;
+  line-height:1.55 !important;
+  text-align:left !important;
+}
+
+/* Baja solo el bloque del título derecho */
+.auth-head{
+  margin-top:28px !important;
+}
+.btn-submit{
+  box-shadow:none !important;
+}
+
+.btn-submit:hover,
+.btn-submit:focus,
+.btn-submit:active{
+  box-shadow:none !important;
+}
+
+.link-terms{
+  color:#2909e0;
+  font-weight:600;
+  text-decoration:underline;
+}
+
+.link-terms:hover{
+  opacity:.8;
+}
+
+.login-register{
+  margin-top:14px;
+}
+
+.login-register a{
+  color:#ffffff;
+  font-weight:600;
+  text-decoration:underline;
+  font-size:14px;
+}
+
+.login-register a:hover{
+  opacity:.8;
+}
+
+/* Acercar texto de acceso a Hola/Bienvenido */
+.login-text{
+  margin-top:6px !important;
+}
+
+
+.login-register{
+  margin-top:22px !important;
+  margin-bottom:34px !important;
 }

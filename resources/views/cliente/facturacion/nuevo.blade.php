@@ -340,6 +340,92 @@
                         </div>
                     </section>
 
+                                        <section class="cfdi-card cfdi-card-principal cfdi-adenda-card" id="adenda">
+                        <div class="cfdi-card-head">
+                            <div>
+                                <span class="cfdi-section-label">Adenda comercial</span>
+                                <h2>Adenda / datos comerciales</h2>
+                                <p>
+                                    Agrega información comercial requerida por cadenas, marketplaces o clientes corporativos.
+                                    No sustituye al complemento fiscal; se integra como nodo de adenda.
+                                </p>
+                            </div>
+
+                            <label class="cfdi-adenda-switch">
+                                <input type="checkbox" name="adenda_activa" id="adenda_activa" value="1" @checked(old('adenda_activa'))>
+                                <span>Usar adenda</span>
+                            </label>
+                        </div>
+
+                        <div class="cfdi-adenda-body" id="adendaBody" hidden>
+                            <div class="cfdi-grid three">
+                                <label class="floating-field">
+                                    <span>Tipo de adenda</span>
+                                    <select name="adenda_tipo" id="adenda_tipo">
+                                        <option value="">Seleccionar</option>
+                                        <option value="walmart" @selected(old('adenda_tipo') === 'walmart')>Walmart</option>
+                                        <option value="soriana" @selected(old('adenda_tipo') === 'soriana')>Soriana</option>
+                                        <option value="liverpool" @selected(old('adenda_tipo') === 'liverpool')>Liverpool</option>
+                                        <option value="chedraui" @selected(old('adenda_tipo') === 'chedraui')>Chedraui</option>
+                                        <option value="amazon" @selected(old('adenda_tipo') === 'amazon')>Amazon</option>
+                                        <option value="mercado_libre" @selected(old('adenda_tipo') === 'mercado_libre')>Mercado Libre</option>
+                                        <option value="oxxo_femsa" @selected(old('adenda_tipo') === 'oxxo_femsa')>OXXO / FEMSA</option>
+                                        <option value="personalizada" @selected(old('adenda_tipo') === 'personalizada')>Personalizada</option>
+                                    </select>
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>Orden de compra</span>
+                                    <input type="text" name="adenda[orden_compra]" id="adenda_orden_compra" value="{{ old('adenda.orden_compra') }}" maxlength="120">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>No. proveedor</span>
+                                    <input type="text" name="adenda[numero_proveedor]" id="adenda_numero_proveedor" value="{{ old('adenda.numero_proveedor') }}" maxlength="120">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>No. tienda / sucursal</span>
+                                    <input type="text" name="adenda[numero_tienda]" value="{{ old('adenda.numero_tienda') }}" maxlength="120">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>GLN / identificador</span>
+                                    <input type="text" name="adenda[gln]" value="{{ old('adenda.gln') }}" maxlength="120">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>Referencia de entrega</span>
+                                    <input type="text" name="adenda[referencia_entrega]" value="{{ old('adenda.referencia_entrega') }}" maxlength="160">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>Contrato</span>
+                                    <input type="text" name="adenda[contrato]" value="{{ old('adenda.contrato') }}" maxlength="160">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>Centro de costos</span>
+                                    <input type="text" name="adenda[centro_costos]" value="{{ old('adenda.centro_costos') }}" maxlength="160">
+                                </label>
+
+                                <label class="floating-field">
+                                    <span>Fecha entrega</span>
+                                    <input type="date" name="adenda[fecha_entrega]" value="{{ old('adenda.fecha_entrega') }}">
+                                </label>
+
+                                <label class="floating-field span-3">
+                                    <span>Observaciones comerciales</span>
+                                    <textarea name="adenda[observaciones]" rows="3" maxlength="1000">{{ old('adenda.observaciones') }}</textarea>
+                                </label>
+                            </div>
+
+                            <div class="cfdi-adenda-help" id="adendaHelp">
+                                Selecciona el tipo de adenda. Si el cliente corporativo la requiere, captura al menos orden de compra y número de proveedor.
+                            </div>
+                        </div>
+                    </section>
+
                     <section class="cfdi-card cfdi-card-principal cfdi-concepts-clean" id="conceptos">
                         <div class="cfdi-concepts-clean-head">
                             <div class="cfdi-concepts-title">
