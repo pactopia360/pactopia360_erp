@@ -3144,3 +3144,214 @@ html.theme-dark .bsv2-progress-dual__fill{
         line-height: 1.55;
     }
 }
+
+/* =========================================================
+   FIX FINAL · ESTADOS V2 RESPONSIVE + ACORDEONES DEFAULT
+   ========================================================= */
+
+.bsv2-page,
+.bsv2-page *{
+    box-sizing: border-box;
+}
+
+.bsv2-page{
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.bsv2-wrap{
+    max-width: 100%;
+    min-width: 0;
+}
+
+.bsv2-table-wrap{
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.bsv2-table,
+.bsv2-table--compact{
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+}
+
+.bsv2-table thead th,
+.bsv2-table tbody td{
+    padding: 13px 12px;
+}
+
+.bsv2-table thead th:nth-child(1),
+.bsv2-table tbody td:nth-child(1){
+    width: 48px;
+}
+
+.bsv2-table thead th:nth-child(2),
+.bsv2-table tbody td:nth-child(2){
+    width: 72px;
+}
+
+.bsv2-table thead th:nth-child(3),
+.bsv2-table tbody td:nth-child(3){
+    width: 34%;
+}
+
+.bsv2-table thead th:nth-child(4),
+.bsv2-table tbody td:nth-child(4),
+.bsv2-table thead th:nth-child(5),
+.bsv2-table tbody td:nth-child(5),
+.bsv2-table thead th:nth-child(6),
+.bsv2-table tbody td:nth-child(6){
+    width: 13%;
+}
+
+.bsv2-table thead th:nth-child(7),
+.bsv2-table tbody td:nth-child(7){
+    width: 13%;
+}
+
+.bsv2-table thead th:nth-child(8),
+.bsv2-table tbody td:nth-child(8){
+    width: 58px;
+}
+
+.bsv2-client-cell,
+.bsv2-money-cell,
+.bsv2-status-cell,
+.bsv2-actions--pro{
+    min-width: 0;
+}
+
+.bsv2-client-name,
+.bsv2-client-meta,
+.bsv2-money-main,
+.bsv2-money-sub,
+.bsv2-status-sub{
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.bsv2-client-grid{
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 5px 12px;
+}
+
+.bsv2-money-main{
+    font-size: clamp(12px, .9vw, 15px);
+}
+
+.bsv2-money-sub,
+.bsv2-status-sub{
+    font-size: 9px;
+}
+
+.bsv2-status{
+    min-width: 92px;
+    max-width: 100%;
+    padding-inline: 10px;
+}
+
+.bsv2-col-actions{
+    width: 58px;
+}
+
+.bsv2-actions{
+    justify-content: center;
+}
+
+.bsv2-actions--pro{
+    min-width: 0;
+}
+
+.bsv2-actions .bsv2-btn--actions{
+    min-width: 42px;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+}
+
+@media (max-width: 1199px){
+    .bsv2-table thead{
+        display: none;
+    }
+
+    .bsv2-table,
+    .bsv2-table tbody,
+    .bsv2-table tr,
+    .bsv2-table td{
+        display: block;
+        width: 100% !important;
+    }
+
+    .bsv2-table tbody tr{
+        position: relative;
+        padding: 14px 64px 14px 54px;
+        border-bottom: 1px solid var(--bsv2-border);
+        background: var(--bsv2-card);
+    }
+
+    .bsv2-table tbody td{
+        padding: 0;
+        border-bottom: 0;
+        background: transparent !important;
+    }
+
+    .bsv2-table tbody td:nth-child(1){
+        position: absolute;
+        top: 18px;
+        left: 16px;
+    }
+
+    .bsv2-table tbody td:nth-child(2){
+        margin-bottom: 8px;
+    }
+
+    .bsv2-table tbody td:nth-child(8){
+        position: absolute;
+        top: 16px;
+        right: 14px;
+    }
+
+    .bsv2-client-cell{
+        margin-bottom: 12px;
+    }
+
+    .bsv2-table tbody td:nth-child(4),
+    .bsv2-table tbody td:nth-child(5),
+    .bsv2-table tbody td:nth-child(6),
+    .bsv2-table tbody td:nth-child(7){
+        display: inline-flex;
+        vertical-align: top;
+        width: 24% !important;
+        min-width: 150px;
+        margin-right: 1%;
+        margin-top: 8px;
+    }
+
+    .bsv2-money-cell,
+    .bsv2-status-cell{
+        width: 100%;
+    }
+}
+
+@media (max-width: 767px){
+    .bsv2-table tbody tr{
+        padding: 14px 58px 14px 48px;
+    }
+
+    .bsv2-table tbody td:nth-child(4),
+    .bsv2-table tbody td:nth-child(5),
+    .bsv2-table tbody td:nth-child(6),
+    .bsv2-table tbody td:nth-child(7){
+        display: block;
+        width: 100% !important;
+        min-width: 0;
+        margin-right: 0;
+    }
+
+    .bsv2-client-grid{
+        grid-template-columns: 1fr;
+    }
+}

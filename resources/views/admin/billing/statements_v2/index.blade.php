@@ -184,7 +184,7 @@
                     type="button"
                     class="bsv2-list-card__summary"
                     id="bsv2-kpis-toggle"
-                    aria-expanded="true"
+                    aria-expanded="false"
                     aria-controls="bsv2-kpis-content"
                 >
                     <span class="bsv2-list-card__summary-main">
@@ -200,7 +200,7 @@
                     </span>
                 </button>
 
-                <div class="bsv2-list-card__content" id="bsv2-kpis-content">
+                <div class="bsv2-list-card__content" id="bsv2-kpis-content" hidden>
                     <div class="bsv2-kpi-strip">
                         <article class="bsv2-kpi-card">
                             <span class="bsv2-kpi-card__label">Estados</span>
@@ -338,7 +338,7 @@
                     type="button"
                     class="bsv2-list-card__summary"
                     id="bsv2-filters-toggle"
-                    aria-expanded="true"
+                    aria-expanded="false"
                     aria-controls="bsv2-filters-content"
                 >
                     <span class="bsv2-list-card__summary-main">
@@ -354,7 +354,7 @@
                     </span>
                 </button>
 
-                <div class="bsv2-list-card__content" id="bsv2-filters-content">
+                <div class="bsv2-list-card__content" id="bsv2-filters-content" hidden>
                     <form method="GET" action="{{ url()->current() }}" class="bsv2-filters-form" id="bsv2-filters-form">
                         <input type="hidden" name="period" value="{{ $currentPeriod ?? now()->format('Y-m') }}">
                         <div id="bsv2-selected-hidden-inputs">
@@ -536,7 +536,7 @@
                         type="button"
                         class="bsv2-list-card__summary"
                         id="bsv2-list-toggle"
-                        aria-expanded="false"
+                        aria-expanded="true"
                         aria-controls="bsv2-list-content"
                     >
                         <span class="bsv2-list-card__summary-main">
@@ -555,7 +555,6 @@
                     <div
                         class="bsv2-list-card__content"
                         id="bsv2-list-content"
-                        hidden
                     >
                         <div class="bsv2-table-wrap">
                             <table class="bsv2-table bsv2-table--compact">

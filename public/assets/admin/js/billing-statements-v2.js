@@ -1299,9 +1299,9 @@
     window.addEventListener('resize', repositionOpenDropdown);
     window.addEventListener('scroll', repositionOpenDropdown, true);
 
-    setupAccordion('bsv2-kpis-toggle', 'bsv2-kpis-content', true);
-    setupAccordion('bsv2-filters-toggle', 'bsv2-filters-content', true);
-    setupAccordion('bsv2-list-toggle', 'bsv2-list-content', false);
+    setupAccordion('bsv2-kpis-toggle', 'bsv2-kpis-content', false);
+    setupAccordion('bsv2-filters-toggle', 'bsv2-filters-content', false);
+    setupAccordion('bsv2-list-toggle', 'bsv2-list-content', true);
 
     resetPreviewModal();
     resetEditModal();
