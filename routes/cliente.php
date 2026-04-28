@@ -459,6 +459,13 @@ Route::middleware(['auth:web', 'account.active'])
         // HOME
         Route::get('home', [ClienteHome::class, 'index'])->name('home');
 
+        // CONFIGURACIÓN LEGACY
+        // Evita 404 en enlaces antiguos a /cliente/configuracion.
+        // Actualmente Configuración vive dentro de Mi cuenta.
+        Route::get('configuracion', function () {
+            return redirect()->route('cliente.mi_cuenta.index');
+        })->name('configuracion.index');
+
         // PERFIL
         Route::prefix('perfil')->name('perfil.')->group(function () {
 
