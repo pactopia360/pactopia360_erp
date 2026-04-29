@@ -602,6 +602,9 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/nuevo', [ClienteFacturacion::class, 'create'])->name('create');
             Route::post('/', [ClienteFacturacion::class, 'store'])->name('store');
 
+            Route::get('/receptores', [ClienteFacturacion::class, 'receptoresIndex'])
+                ->name('receptores.index');
+
             Route::get('/{cfdi}', [ClienteFacturacion::class, 'show'])
                 ->whereNumber('cfdi')
                 ->name('show');
@@ -643,6 +646,10 @@ Route::middleware(['auth:web', 'account.active'])
             Route::put('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorUpdate'])
                 ->whereNumber('receptor')
                 ->name('receptores.update');
+
+            Route::delete('/receptores/{receptor}', [ClienteFacturacion::class, 'receptorDestroy'])
+                ->whereNumber('receptor')
+                ->name('receptores.destroy');
 
             Route::post('/assistant', [ClienteFacturacion::class, 'assistant'])
                 ->name('assistant');

@@ -97,59 +97,37 @@ return [
         ],
     ],
 
-    // ===== Facturotopia =====
+    /// ===== Facturotopia =====
     'facturotopia' => [
-        // sandbox | production
-        'mode' => (string) env('FACTUROTOPIA_MODE', 'sandbox'),
+        'mode' => env('FACTUROTOPIA_MODE', 'sandbox'),
 
-        // api_comprobantes
-        'flow' => (string) env('FACTUROTOPIA_FLOW', 'api_comprobantes'),
-
-        // bearer | apikey
-        'auth_scheme' => strtolower((string) env('FACTUROTOPIA_AUTH_SCHEME', 'bearer')),
-
-        // multi-tenant
-        'tenancy'        => (string) env('FACTUROTOPIA_TENANCY', ''),
-        'tenancy_header' => (string) env('FACTUROTOPIA_TENANCY_HEADER', 'X-Tenancy'),
-
-        // emisor por defecto para comprobantes
-        'emisor_id' => (string) env('FACTUROTOPIA_EMISOR_ID', ''),
-
-        // Entorno sandbox/demo
         'sandbox' => [
-            'base'  => rtrim((string) env('FT_BASE', env('FACTUROTOPIA_BASE_URL_TEST', 'https://api-demo.facturotopia.com/api')), '/'),
-            'token' => (string) env('FT_TOKEN', env('FACTUROTOPIA_API_KEY_TEST', '')),
+            'base_url' => env('FACTUROTOPIA_SANDBOX_BASE_URL', env('FACTUROTOPIA_SANDBOX_BASE', 'https://api-demo.facturotopia.com')),
+            'base' => env('FACTUROTOPIA_SANDBOX_BASE', env('FACTUROTOPIA_SANDBOX_BASE_URL', 'https://api-demo.facturotopia.com')),
+            'api_key' => env('FACTUROTOPIA_SANDBOX_API_KEY', env('FACTUROTOPIA_SANDBOX_TOKEN')),
+            'token' => env('FACTUROTOPIA_SANDBOX_TOKEN', env('FACTUROTOPIA_SANDBOX_API_KEY')),
         ],
 
-        // Entorno producción
         'production' => [
-            'base'  => rtrim((string) env('FACTUROTOPIA_BASE_URL', 'https://api.facturotopia.com'), '/'),
-            'token' => (string) env('FACTUROTOPIA_API_KEY_LIVE', ''),
+            'base_url' => env('FACTUROTOPIA_PRODUCTION_BASE_URL', env('FACTUROTOPIA_PRODUCTION_BASE', 'https://vip.facturotopia.com')),
+            'base' => env('FACTUROTOPIA_PRODUCTION_BASE', env('FACTUROTOPIA_PRODUCTION_BASE_URL', 'https://vip.facturotopia.com')),
+            'api_key' => env('FACTUROTOPIA_PRODUCTION_API_KEY', env('FACTUROTOPIA_PRODUCTION_TOKEN')),
+            'token' => env('FACTUROTOPIA_PRODUCTION_TOKEN', env('FACTUROTOPIA_PRODUCTION_API_KEY')),
         ],
 
-        // Compatibilidad hacia atrás
-        'base_url' => rtrim((string) (
-            env('FACTUROTOPIA_MODE', 'sandbox') === 'production'
-                ? env('FACTUROTOPIA_BASE_URL', 'https://api.facturotopia.com')
-                : env('FT_BASE', env('FACTUROTOPIA_BASE_URL_TEST', 'https://api-demo.facturotopia.com/api'))
-        ), '/'),
-
-        'api_key' => (string) (
-            env('FACTUROTOPIA_MODE', 'sandbox') === 'production'
-                ? env('FACTUROTOPIA_API_KEY_LIVE', '')
-                : env('FT_TOKEN', env('FACTUROTOPIA_API_KEY_TEST', ''))
-        ),
-
-        'api_key_test' => (string) env('FACTUROTOPIA_API_KEY_TEST', env('FT_TOKEN', '')),
-        'api_key_live' => (string) env('FACTUROTOPIA_API_KEY_LIVE', ''),
-    ],
-
-            'endpoints' => [
+        'endpoints' => [
             'register_emisor' => env('FACTUROTOPIA_ENDPOINT_REGISTER_EMISOR', 'api/emisores'),
-            'timbrar_cfdi' => env('FACTUROTOPIA_ENDPOINT_TIMBRAR_CFDI', 'api/timbrado'),
-            'consultar_uuid' => env('FACTUROTOPIA_ENDPOINT_CONSULTAR_UUID', 'cfdi/{uuid}'),
-            'xml' => env('FACTUROTOPIA_ENDPOINT_XML', 'cfdi/{uuid}/xml'),
-            'pdf' => env('FACTUROTOPIA_ENDPOINT_PDF', 'cfdi/{uuid}/pdf'),
+            'emisores_list' => env('FACTUROTOPIA_ENDPOINT_EMISORES_LIST', 'api/emisores'),
+            'emisor_show' => env('FACTUROTOPIA_ENDPOINT_EMISOR_SHOW', 'api/emisores/{id}'),
+            'emisor_update' => env('FACTUROTOPIA_ENDPOINT_EMISOR_UPDATE', 'api/emisores/{id}'),
+            'emisor_status' => env('FACTUROTOPIA_ENDPOINT_EMISOR_STATUS', 'api/emisores/{id}/status'),
+
+            'timbrar_cfdi' => env('FACTUROTOPIA_ENDPOINT_TIMBRAR_CFDI', 'api/comprobantes'),
+
+            'consultar_uuid' => env('FACTUROTOPIA_ENDPOINT_CONSULTAR_UUID', 'api/cfdi/{uuid}'),
+            'xml' => env('FACTUROTOPIA_ENDPOINT_XML', 'api/cfdi/{uuid}/xml'),
+            'pdf' => env('FACTUROTOPIA_ENDPOINT_PDF', 'api/cfdi/{uuid}/pdf'),
         ],
+    ],
 
 ];

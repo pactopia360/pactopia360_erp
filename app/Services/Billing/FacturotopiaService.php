@@ -73,19 +73,17 @@ class FacturotopiaService
         ];
     }
 
-    public function client(array $config)
+   public function client(array $config)
     {
-        $apiKey = (string) ($config['api_key'] ?? '');
+        $apiKey = trim((string) ($config['api_key'] ?? ''));
 
         return Http::timeout(60)
             ->acceptJson()
             ->asJson()
             ->withHeaders([
-                'Authorization' => 'Bearer ' . $apiKey,
-                'X-API-KEY' => $apiKey,
-                'X-Tenant' => (string) ($config['customer_id'] ?? ''),
-                'X-Customer-ID' => (string) ($config['customer_id'] ?? ''),
-                'Customer-ID' => (string) ($config['customer_id'] ?? ''),
+                'Authorization' => 'Apikey ' . $apiKey,
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
             ]);
     }
 
@@ -101,11 +99,17 @@ class FacturotopiaService
             throw new \RuntimeException('Facturotopia no tiene API key/token configurado para ' . ($config['env'] ?? 'sandbox') . '.');
         }
 
-        if (empty($config['customer_id'])) {
-            throw new \RuntimeException('Facturotopia no tiene ID cliente configurado. Captúralo en Admin > Clientes > Facturotopia / API / Timbres.');
-        }
-
         $url = $config['base_url'] . '/' . ltrim($endpoint, '/');
+
+        \Log::warning('Facturotopia.request.debug', [
+            'env' => $config['env'] ?? null,
+            'method' => strtoupper($method),
+            'base_url' => $config['base_url'] ?? null,
+            'endpoint' => $endpoint,
+            'url' => $url,
+            'has_api_key' => !empty($config['api_key'] ?? ''),
+            'customer_id' => $config['customer_id'] ?? null,
+        ]);
 
         return match (strtoupper($method)) {
             'GET' => $this->client($config)->get($url, $payload),
@@ -218,7 +222,7 @@ public function actualizarEmisor(int|string $adminAccountId, string $emisorId, a
 
     public function timbrarCfdi(int|string $adminAccountId, array $payload, ?string $env = null): array
     {
-        $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/timbrado');
+        $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/comprobantes');
 
         $response = $this->request($adminAccountId, 'POST', $endpoint, $payload, $env);
 

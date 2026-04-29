@@ -112,9 +112,9 @@
         ? route('cliente.facturacion.emisores')
         : null;
 
-    $rtReceptores = Route::has('cliente.facturacion.receptores')
-        ? route('cliente.facturacion.receptores')
-        : null;
+    $rtReceptores = Route::has('cliente.facturacion.receptores.index')
+    ? route('cliente.facturacion.receptores.index')
+    : null;
 
     $rtProductos = Route::has('cliente.facturacion.productos')
         ? route('cliente.facturacion.productos')
@@ -332,64 +332,6 @@ if ($cfdiCollection->isNotEmpty()) {
                                         Disponibles
                                     </div>
                                 </div>
-
-                                <div class="fx360-sidebox">
-                                    <div class="fx360-sidebox__head">
-                                        <div class="fx360-sidebox__label">
-                                            ESTADO
-                                        </div>
-
-                                        <span class="fx360-sidebox__icon fx360-sidebox__icon--green" aria-hidden="true">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                                                <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                                                <path d="M9.5 12.5l1.7 1.7 3.5-3.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                                            </svg>
-                                        </span>
-                                    </div>
-
-                                    <div class="fx360-sidebox__value">
-                                        {{ strtoupper($sumEstado ?: 'ACTIVA') }}
-                                    </div>
-
-                                    <div class="fx360-sidebox__sub">
-                                        {{ $sumBlocked ? 'Bloqueada' : 'Operativa' }}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="fx360-sideactions">
-                                <a
-                                    href="{{ $rtCreate }}"
-                                    class="sat-clean-btn sat-clean-btn--primary fx360-sidebtn"
-                                    style="box-shadow:0 14px 26px rgba(15,94,255,.22);"
-                                    title="Nuevo CFDI"
-                                    aria-label="Nuevo CFDI"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>Nuevo</span>
-                                </a>
-
-                                <a
-                                    href="{{ $rtExport }}"
-                                    class="sat-clean-btn sat-clean-btn--ghost fx360-sidebtn"
-                                    style="
-                                        background:rgba(255,255,255,.92);
-                                        color:#1f4a9c;
-                                        border:1px solid rgba(255,255,255,.24);
-                                        box-shadow:0 10px 20px rgba(10,24,64,.10);
-                                    "
-                                    title="Exportar"
-                                    aria-label="Exportar"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                        <path d="M12 4v10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                        <path d="M8.5 10.5 12 14l3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>Exportar</span>
-                                </a>
                             </div>
                         </div>
                     </div>
@@ -511,93 +453,85 @@ if ($cfdiCollection->isNotEmpty()) {
 </section>
 
         <section class="sat-clean-accordion" aria-label="Emisión">
-            <details class="sat-clean-accordion__item">
-                <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
-                    <div class="sat-clean-accordion__bar-left">
-                        <span class="sat-clean-accordion__bar-title">Emisión</span>
-                        <span class="sat-clean-accordion__bar-text">CFDI manual, catálogos y accesos operativos</span>
+    <details class="sat-clean-accordion__item">
+        <summary class="sat-clean-accordion__summary sat-clean-accordion__summary--bar">
+            <div class="sat-clean-accordion__bar-left">
+                <span class="sat-clean-accordion__bar-title">Emisión</span>
+                <span class="sat-clean-accordion__bar-text">CFDI manual, catálogos y accesos operativos</span>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span class="sat-clean-accordion__bar-action" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                        <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                    </svg>
+                </span>
+            </div>
+        </summary>
+
+        <div class="sat-clean-accordion__content">
+            <div class="fx360-tiles" style="padding-top:12px;">
+                <a href="{{ $rtCreate }}" class="fx360-tile">
+                    <div class="fx360-tile__ico">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
                     </div>
+                    <div class="fx360-tile__title">Nuevo CFDI</div>
+                    <div class="fx360-tile__sub">Alta manual rápida para emisión puntual y control visual del flujo.</div>
+                </a>
 
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span class="sat-clean-status-badge {{ $sumIsPro ? 'is-success' : 'is-muted' }}">
-                            {{ $sumIsPro ? 'PRO' : 'BASE' }}
-                        </span>
+                @if(Route::has('cliente.rfcs.index'))
+                    <a href="{{ route('cliente.rfcs.index') }}" class="fx360-tile">
+                        <div class="fx360-tile__ico">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 4h16v16H4z"/>
+                                <path d="M8 8h8M8 12h8M8 16h5"/>
+                            </svg>
+                        </div>
+                        <div class="fx360-tile__title">RFC / Emisores</div>
+                        <div class="fx360-tile__sub">Registra, consulta y sincroniza emisores con Facturotopia.</div>
+                    </a>
+                @endif
 
-                        <span class="sat-clean-accordion__bar-action" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none">
-                                <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-                                <path d="M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                <a href="{{ $rtReceptores ?: route('cliente.facturacion.index') }}" class="fx360-tile">
+                    <div class="fx360-tile__ico">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21a8 8 0 0 0-16 0"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </div>
+                    <div class="fx360-tile__title">RFC Receptores</div>
+                    <div class="fx360-tile__sub">Administra CP, régimen fiscal, uso CFDI y razón social.</div>
+                </a>
+
+                <div class="fx360-tile {{ $sumIsPro ? '' : 'fx360-proveil' }}">
+                    <span class="sat-clean-status-badge {{ $sumIsPro ? 'is-success' : 'is-muted' }}" style="position:absolute; top:14px; right:14px;">
+                        {{ $sumIsPro ? 'ACTIVO' : 'PRO' }}
+                    </span>
+                    @unless($sumIsPro)
+                        <span class="fx360-lock" title="Solo PRO">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                <path d="M8 11V8a4 4 0 1 1 8 0v3"/>
                             </svg>
                         </span>
+                    @endunless
+
+                    <div class="fx360-tile__ico">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 4h16v16H4z"/>
+                            <path d="M8 8h8M8 12h8M8 16h5"/>
+                        </svg>
                     </div>
-                </summary>
-
-                <div class="sat-clean-accordion__content">
-                    <div class="fx360-tiles" style="padding-top:12px;">
-                        <a href="{{ $rtCreate }}" class="fx360-tile">
-                            <div class="fx360-tile__ico">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M12 5v14M5 12h14"/>
-                                </svg>
-                            </div>
-                            <div class="fx360-tile__title">Nuevo CFDI</div>
-                            <div class="fx360-tile__sub">Alta manual rápida para emisión puntual y control visual del flujo.</div>
-                        </a>
-
-                        @if(Route::has('cliente.rfcs.index'))
-                            <a href="{{ route('cliente.rfcs.index') }}" class="fx360-tile">
-                                <div class="fx360-tile__ico">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M4 4h16v16H4z"/>
-                                        <path d="M8 8h8M8 12h8M8 16h5"/>
-                                    </svg>
-                                </div>
-                                <div class="fx360-tile__title">RFC / Emisores</div>
-                                <div class="fx360-tile__sub">Registra, consulta y sincroniza emisores con Facturotopia.</div>
-                            </a>
-                        @endif
-
-                        @if($rtEmisores)
-                            <a href="{{ $rtEmisores }}" class="fx360-tile">
-                                <div class="fx360-tile__ico">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M3 21h18"/>
-                                        <path d="M5 21V7l7-4 7 4v14"/>
-                                    </svg>
-                                </div>
-                                <div class="fx360-tile__title">Emisores</div>
-                                <div class="fx360-tile__sub">Gestión visual de emisores activos para timbrado.</div>
-                            </a>
-                        @endif
-
-                        @if($rtReceptores)
-                            <a href="{{ $rtReceptores }}" class="fx360-tile">
-                                <div class="fx360-tile__ico">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M20 21a8 8 0 0 0-16 0"/>
-                                        <circle cx="12" cy="7" r="4"/>
-                                    </svg>
-                                </div>
-                                <div class="fx360-tile__title">Receptores</div>
-                                <div class="fx360-tile__sub">RFC, razón social y datos fiscales reutilizables.</div>
-                            </a>
-                        @endif
-
-                        @if($rtProductos)
-                            <a href="{{ $rtProductos }}" class="fx360-tile">
-                                <div class="fx360-tile__ico">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                                    </svg>
-                                </div>
-                                <div class="fx360-tile__title">Conceptos</div>
-                                <div class="fx360-tile__sub">Productos y servicios listos para facturar dentro del flujo CFDI.</div>
-                            </a>
-                        @endif
-                    </div>
+                    <div class="fx360-tile__title">CFDI masivo</div>
+                    <div class="fx360-tile__sub">Emisión por Excel. Disponible solo para cuentas PRO.</div>
                 </div>
-            </details>
-        </section>
+            </div>
+        </div>
+    </details>
+</section>
 
         <section class="sat-clean-accordion" aria-label="Borradores">
     <details class="sat-clean-accordion__item">
@@ -680,6 +614,29 @@ if ($cfdiCollection->isNotEmpty()) {
                                                     <path d="M13.5 5.9L18.1 10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                                 </svg>
                                             </a>
+                                        @endif
+
+                                        @if(Route::has('cliente.facturacion.destroy'))
+                                            <form method="POST"
+                                                action="{{ route('cliente.facturacion.destroy', $row->id) }}"
+                                                onsubmit="return confirm('¿Eliminar este borrador? Esta acción no se puede deshacer.');"
+                                                style="display:inline-flex; margin:0;">
+                                                @csrf
+                                                @method('DELETE')
+
+                                                <button type="submit"
+                                                        class="fx360-action-icon fx360-action-icon--danger"
+                                                        data-tip="Eliminar"
+                                                        aria-label="Eliminar borrador">
+                                                    <svg viewBox="0 0 24 24" fill="none">
+                                                        <path d="M4 7H20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                        <path d="M10 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                        <path d="M14 11V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                                        <path d="M6.5 7L7.3 20H16.7L17.5 7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                        <path d="M9 7V4H15V7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                                                    </svg>
+                                                </button>
+                                            </form>
                                         @endif
                                     </div>
                                 </td>
@@ -938,10 +895,6 @@ if ($cfdiCollection->isNotEmpty()) {
                     </div>
 
                     <div style="display:flex; align-items:center; gap:10px;">
-                        <span class="sat-clean-status-badge {{ $sumIsPro ? 'is-success' : 'is-muted' }}">
-                            {{ $sumIsPro ? 'PRO' : 'LOCKED' }}
-                        </span>
-
                         <span class="sat-clean-accordion__bar-action" aria-hidden="true">
                             <svg viewBox="0 0 24 24" fill="none">
                                 <path d="M12 5V19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>

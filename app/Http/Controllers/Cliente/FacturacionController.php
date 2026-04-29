@@ -1093,31 +1093,39 @@ class FacturacionController extends Controller
         $uuidTemp = 'BORRADOR-' . strtoupper((string) Str::uuid());
 
         DB::connection($conn)->transaction(function () use (
-                $conn,
-                $cfdiTable,
-                $conceptoTable,
-                $data,
-                $subtotal,
-                $descuento,
-                $iva,
-                $total,
-                $uuidTemp,
-                $metodoPago,
-                $formaPago,
-                $tipoDocumento,
-                $assistant,
-                $clienteIdForCfdi,
-                $cuentaIdForCfdi,
-                $emisorCredential
-            ) {
+                    $conn,
+                    $cfdiTable,
+                    $conceptoTable,
+                    $data,
+                    $subtotal,
+                    $descuento,
+                    $iva,
+                    $total,
+                    $uuidTemp,
+                    $metodoPago,
+                    $formaPago,
+                    $tipoDocumento,
+                    $assistant,
+                    $clienteIdForCfdi,
+                    $cuentaIdForCfdi,
+                    $emisorCredential,
+                    $adendaTipo,
+                    $adendaData,
+                    $adendaActiva,
+                    $adendaXml
+                ) {
             $now = now();
 
             $cfdiPayload = [
                 'cliente_id' => $clienteIdForCfdi,
                 'cuenta_id' => $cuentaIdForCfdi,
                 'emisor_credential_id' => $emisorCredential->id,
+
                 'emisor_rfc' => $emisorCredential->rfc,
                 'emisor_razon_social' => $emisorCredential->razon_social,
+
+                'rfc_emisor' => $emisorCredential->rfc,
+                'razon_emisor' => $emisorCredential->razon_social,
                 'receptor_id' => $data['receptor_id'],
                 'uuid' => $uuidTemp,
                 'serie' => $data['serie'] ?? null,
@@ -1149,7 +1157,7 @@ class FacturacionController extends Controller
                 'ia_fiscal_nivel' => $assistant['nivel'],
                 'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
                 'observaciones' => $data['observaciones'] ?? null,
-                                'adenda_tipo' => $adendaTipo,
+                'adenda_tipo' => $adendaTipo,
                 'adenda_json' => $adendaActiva ? json_encode([
                     'tipo' => $adendaTipo,
                     'datos' => $adendaData,
@@ -1403,14 +1411,33 @@ public function destroy(int $cfdi)
 {
     $item = $this->findOwnedCfdi($cfdi);
 
-    DB::connection($this->cfdiConn())->table('cfdis')
-        ->where('id', $item->id)
-        ->delete();
+    if (strtolower((string) ($item->estatus ?? '')) !== 'borrador') {
+        return redirect()
+            ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
+            ->withErrors([
+                'cfdi' => 'Solo se pueden eliminar CFDI en borrador.',
+            ]);
+    }
 
-    return response()->json([
-        'ok' => true,
-        'message' => 'CFDI eliminado correctamente.'
-    ]);
+    $conn = $this->cfdiConn();
+    $cfdiTable = (new Cfdi)->getTable();
+    $conceptoTable = (new CfdiConcepto)->getTable();
+
+    DB::connection($conn)->transaction(function () use ($conn, $cfdiTable, $conceptoTable, $item) {
+        DB::connection($conn)
+            ->table($conceptoTable)
+            ->where('cfdi_id', $item->id)
+            ->delete();
+
+        DB::connection($conn)
+            ->table($cfdiTable)
+            ->where('id', $item->id)
+            ->delete();
+    });
+
+    return redirect()
+        ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
+        ->with('ok', 'Borrador CFDI eliminado correctamente.');
 }
 
 public function descargarZip(int $cfdi)
@@ -1562,10 +1589,6 @@ public function descargarZip(int $cfdi)
             $xmlBase64,
             $xmlTimbrado,
             $pdfBase64,
-            $adendaTipo,
-            $adendaData,
-            $adendaActiva,
-            $adendaXml,
             $timbre
         ) {
             DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
@@ -1611,6 +1634,24 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
 
     $emisorId = $this->resolveFacturotopiaEmisorId($cfdi);
 
+    if ($emisorId === '') {
+        throw new \RuntimeException('El RFC emisor no tiene emisor_id de Facturotopia. Sincroniza el RFC desde RFC / Emisores antes de timbrar.');
+    }
+
+    $cp = trim((string) ($cfdi->cp_receptor ?: ($receptor->codigo_postal ?? '')));
+    $cp = preg_replace('/\D+/', '', $cp);
+
+    $regimen = trim((string) ($cfdi->regimen_receptor ?: ($receptor->regimen_fiscal ?? '')));
+    $usoCfdi = strtoupper(trim((string) ($cfdi->uso_cfdi ?: ($receptor->uso_cfdi ?? 'G03'))));
+
+    if ($cp === '' || ! preg_match('/^\d{5}$/', $cp)) {
+        throw new \RuntimeException('El receptor no tiene código postal fiscal válido. Edita el receptor y captura su CP fiscal antes de timbrar.');
+    }
+
+    if ($regimen === '') {
+        throw new \RuntimeException('El receptor no tiene régimen fiscal asignado. Edita el receptor y captura su régimen fiscal antes de timbrar.');
+    }
+
     $payload = [
         'Idx' => (string) Str::uuid(),
         'Version' => '4.0',
@@ -1618,8 +1659,10 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         'FormaPago' => (string) ($cfdi->forma_pago ?: '03'),
         'MetodoPago' => (string) ($cfdi->metodo_pago ?: 'PUE'),
         'SubTotal' => number_format((float) ($cfdi->subtotal ?? 0), 2, '.', ''),
+        'Descuento' => number_format((float) ($cfdi->descuento ?? 0), 2, '.', ''),
         'Moneda' => (string) ($cfdi->moneda ?: 'MXN'),
         'Total' => number_format((float) ($cfdi->total ?? 0), 2, '.', ''),
+        'CondicionesDePago' => (string) ($cfdi->condiciones_pago ?: 'Pago en una sola exhibición'),
         'TipoDeComprobante' => (string) ($cfdi->tipo_comprobante ?: 'I'),
         'Exportacion' => '01',
         'Emisor' => [
@@ -1628,15 +1671,15 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         'Receptor' => [
             'Rfc' => strtoupper((string) ($receptor->rfc ?? $cfdi->rfc_receptor ?? 'XAXX010101000')),
             'Nombre' => strtoupper((string) ($receptor->razon_social ?? $receptor->nombre_comercial ?? $cfdi->razon_receptor ?? 'PUBLICO GENERAL')),
-            'UsoCFDI' => (string) ($receptor->uso_cfdi ?? $cfdi->uso_cfdi ?? 'G03'),
-            'CP' => (string) ($receptor->codigo_postal ?? $cfdi->cp_receptor ?? '00000'),
-            'Regimen' => (string) ($receptor->regimen_fiscal ?? $cfdi->regimen_receptor ?? '601'),
+            'UsoCFDI' => $usoCfdi !== '' ? $usoCfdi : 'G03',
+            'CP' => $cp,
+            'Regimen' => $regimen,
         ],
         'Conceptos' => [
             'Concepto' => [],
         ],
     ];
-
+    
     if (! empty($cfdi->serie)) {
         $payload['Serie'] = (string) $cfdi->serie;
     }
@@ -1701,38 +1744,60 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
 
 protected function resolveFacturotopiaEmisorId($cfdi): string
 {
-    $credentialId = $cfdi->emisor_credential_id ?? null;
+    try {
+        $cuenta = $this->currentCuenta();
+        $cuentaId = $cuenta && !empty($cuenta->id) ? (string) $cuenta->id : '';
 
-    if ($credentialId) {
-        try {
-            $credential = SatCredential::query()->where('id', $credentialId)->first();
+        $rfc = $this->normalizeRfc($cfdi->emisor_rfc ?? $cfdi->rfc_emisor ?? '');
 
-            if ($credential) {
-                $meta = is_array($credential->meta ?? null)
-                    ? $credential->meta
-                    : (json_decode((string) ($credential->meta ?? ''), true) ?: []);
+        $credentialQuery = SatCredential::query();
 
-                foreach ([
-                    'facturotopia.id',
-                    'facturotopia.emisor_id',
-                    'facturotopiaEmisorId',
-                    'pactopia.emisor_id',
-                    'pactopia_id',
-                    'emisor_id',
-                ] as $key) {
-                    $value = data_get($meta, $key);
-
-                    if (! empty($value)) {
-                        return (string) $value;
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            report($e);
+        if (!empty($cfdi->emisor_credential_id)) {
+            $credentialQuery->where('id', (string) $cfdi->emisor_credential_id);
+        } elseif ($rfc !== '') {
+            $credentialQuery->where('rfc', $rfc);
+        } else {
+            return '';
         }
-    }
 
-    return (string) $credentialId;
+        if ($cuentaId !== '') {
+            $credentialQuery->where(function ($q) use ($cuentaId) {
+                $q->where('cuenta_id', $cuentaId)
+                    ->orWhere('account_id', $cuentaId);
+            });
+        }
+
+        $credential = $credentialQuery->first();
+
+        if (!$credential) {
+            return '';
+        }
+
+        $meta = is_array($credential->meta ?? null)
+            ? $credential->meta
+            : (json_decode((string) ($credential->meta ?? ''), true) ?: []);
+
+        $env = strtolower((string) request()->input(
+            'facturotopia_env',
+            data_get($meta, 'facturotopia.env', 'sandbox')
+        ));
+
+        $env = in_array($env, ['sandbox', 'production'], true) ? $env : 'sandbox';
+
+        $emisorId =
+            data_get($meta, "facturotopia.{$env}.emisor_id")
+            ?: data_get($meta, "facturotopia.{$env}.id")
+            ?: data_get($meta, 'facturotopia.emisor_id')
+            ?: data_get($meta, 'facturotopia.id')
+            ?: data_get($meta, 'emisor_id')
+            ?: data_get($meta, 'facturotopia_emisor_id');
+
+        return $emisorId ? (string) $emisorId : '';
+    } catch (\Throwable $e) {
+        report($e);
+
+        return '';
+    }
 }
 
 protected function extractBase64FromPacResponse(array $data, string $body, array $keys): string
@@ -1844,27 +1909,37 @@ protected function extractCfdiTimbreData(string $xml): array
     return $out;
 }
 
-    public function receptorShow(int $receptor): JsonResponse
+    public function receptoresIndex(Request $request): View
     {
         $cuenta = $this->currentCuenta();
 
-        if (!$cuenta) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'No se pudo identificar la cuenta activa del cliente.',
-            ], 403);
+        if (! $cuenta) {
+            abort(403, 'No se pudo identificar la cuenta activa del cliente.');
         }
 
-        $item = Receptor::query()
+        $receptores = Receptor::query()
             ->where('cuenta_id', $cuenta->id)
-            ->where('id', $receptor)
-            ->firstOrFail();
+            ->when(trim((string) $request->query('q', '')) !== '', function ($query) use ($request) {
+                $q = trim((string) $request->query('q', ''));
 
-        return response()->json([
-            'ok' => true,
-            'receptor' => $this->receptorPayload($item),
+                $query->where(function ($w) use ($q) {
+                    $w->where('rfc', 'like', "%{$q}%")
+                        ->orWhere('razon_social', 'like', "%{$q}%")
+                        ->orWhere('nombre_comercial', 'like', "%{$q}%")
+                        ->orWhere('email', 'like', "%{$q}%");
+                });
+            })
+            ->orderByRaw("COALESCE(razon_social, nombre_comercial, rfc, '') ASC")
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('cliente.facturacion.receptores.index', [
+            'receptores' => $receptores,
+            'fiscalCatalogs' => $this->fiscalCatalogs(),
+            'q' => trim((string) $request->query('q', '')),
         ]);
     }
+
     public function receptorStore(Request $request): JsonResponse
     {
         $cuenta = $this->currentCuenta();
@@ -1936,6 +2011,30 @@ protected function extractCfdiTimbreData(string $xml): array
             'receptor' => $this->receptorPayload($item->fresh()),
         ]);
     }
+
+    public function receptorDestroy(int $receptor)
+{
+    $cuenta = $this->currentCuenta();
+
+    if (! $cuenta) {
+        return redirect()
+            ->route('cliente.facturacion.receptores.index')
+            ->withErrors([
+                'receptor' => 'No se pudo identificar la cuenta del cliente.',
+            ]);
+    }
+
+    $item = Receptor::query()
+        ->where('cuenta_id', $cuenta->id)
+        ->where('id', $receptor)
+        ->firstOrFail();
+
+    $item->delete();
+
+    return redirect()
+        ->route('cliente.facturacion.receptores.index')
+        ->with('ok', 'Receptor eliminado correctamente.');
+}
 
     public function actualizar(Request $request, int $cfdi)
     {
@@ -2066,8 +2165,12 @@ protected function extractCfdiTimbreData(string $xml): array
             $cfdiPayload = [
                 'cliente_id' => is_numeric($item->cliente_id) ? (int) $item->cliente_id : 0,
                 'emisor_credential_id' => $emisorCredential->id,
+
                 'emisor_rfc' => $emisorCredential->rfc,
                 'emisor_razon_social' => $emisorCredential->razon_social,
+
+                'rfc_emisor' => $emisorCredential->rfc,
+                'razon_emisor' => $emisorCredential->razon_social,
                 'receptor_id' => $data['receptor_id'],
                 'serie' => $data['serie'] ?? null,
                 'folio' => $data['folio'] ?? null,

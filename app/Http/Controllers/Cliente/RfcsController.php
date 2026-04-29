@@ -665,13 +665,25 @@ private function buildFacturotopiaCertificadosPayload(SatCredential $credential)
 
     $csdCerPath = (string) ($credential->csd_cer_path ?? '');
     $csdKeyPath = (string) ($credential->csd_key_path ?? '');
+    $fielCerPath = (string) ($credential->fiel_cer_path ?? ($credential->cer_path ?? ''));
+    $fielKeyPath = (string) ($credential->fiel_key_path ?? ($credential->key_path ?? ''));
+
     $csdPassword = '';
+    $fielPassword = '';
 
     if ($this->hasColumn('sat_credentials', 'csd_password_enc') && !empty($credential->csd_password_enc)) {
         try {
             $csdPassword = decrypt($credential->csd_password_enc);
         } catch (\Throwable $e) {
             $csdPassword = '';
+        }
+    }
+
+    if ($this->hasColumn('sat_credentials', 'fiel_password_enc') && !empty($credential->fiel_password_enc)) {
+        try {
+            $fielPassword = decrypt($credential->fiel_password_enc);
+        } catch (\Throwable $e) {
+            $fielPassword = '';
         }
     }
 
@@ -685,6 +697,18 @@ private function buildFacturotopiaCertificadosPayload(SatCredential $credential)
 
     if ($csdPassword !== '') {
         $certificados['csd_password'] = $csdPassword;
+    }
+
+    if ($fielCerPath !== '' && Storage::disk('private')->exists($fielCerPath)) {
+        $certificados['fiel_cer'] = base64_encode(Storage::disk('private')->get($fielCerPath));
+    }
+
+    if ($fielKeyPath !== '' && Storage::disk('private')->exists($fielKeyPath)) {
+        $certificados['fiel_key'] = base64_encode(Storage::disk('private')->get($fielKeyPath));
+    }
+
+    if ($fielPassword !== '') {
+        $certificados['fiel_password'] = $fielPassword;
     }
 
     return $certificados;
