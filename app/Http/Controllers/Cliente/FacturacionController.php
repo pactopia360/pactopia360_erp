@@ -1212,7 +1212,7 @@ class FacturacionController extends Controller
             ->with('ok', 'Borrador CFDI 4.0 creado correctamente con revisión fiscal inteligente.');
     }
 
-    protected function findOwnedCfdi(int $cfdiId)
+protected function findOwnedCfdi(int $cfdiId)
 {
     $conn = $this->cfdiConn();
     $conceptoTable = 'cfdi_conceptos';
@@ -1225,7 +1225,7 @@ class FacturacionController extends Controller
         'precio_unitario',
     ];
 
-    foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total'] as $col) {
+    foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total', 'descuento', 'iva_tasa', 'clave_producto_sat', 'clave_unidad_sat', 'objeto_impuesto'] as $col) {
         if ($this->hasColumn($conceptoTable, $col, $conn)) {
             $conceptoColumns[] = $col;
         }
@@ -1235,7 +1235,7 @@ class FacturacionController extends Controller
         ->where('id', $cfdiId)
         ->with([
             'cliente:id,razon_social,nombre_comercial,rfc',
-            'receptor:id,razon_social,nombre_comercial,rfc',
+            'receptor:id,razon_social,nombre_comercial,rfc,uso_cfdi,forma_pago,metodo_pago,regimen_fiscal,codigo_postal,pais,estado,municipio,colonia,calle,no_ext,no_int,email,telefono',
             'conceptos' => function ($q) use ($conceptoColumns) {
                 $q->select($conceptoColumns);
             },
