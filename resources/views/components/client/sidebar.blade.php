@@ -30,18 +30,28 @@
 
   $bootstrapNoSotYet = (!$hasSot && !$hasLegacy);
 
-  $stateOf = function (string $key) use ($modsState, $legacyMods, $bootstrapNoSotYet): string {
+$stateOf = function (string $key) use ($modsState, $legacyMods): string {
     if (is_array($modsState) && array_key_exists($key, $modsState)) {
-      $v = strtolower(trim((string) $modsState[$key]));
-      return in_array($v, ['active','inactive','hidden','blocked'], true) ? $v : 'active';
+        $v = strtolower(trim((string) $modsState[$key]));
+
+        return in_array($v, ['active', 'inactive', 'hidden', 'blocked'], true)
+            ? $v
+            : 'active';
     }
 
     if (is_array($legacyMods) && array_key_exists($key, $legacyMods)) {
-      return ((bool) $legacyMods[$key]) ? 'active' : 'inactive';
+        return ((bool) $legacyMods[$key]) ? 'active' : 'inactive';
     }
 
-    return $bootstrapNoSotYet ? 'hidden' : 'active';
-  };
+    /*
+    |--------------------------------------------------------------------------
+    | Fallback seguro
+    |--------------------------------------------------------------------------
+    | Si todavía no cargó SOT/permisos en sesión, NO ocultamos módulos.
+    | Antes regresaba "hidden" y por eso el menú a veces salía incompleto.
+    */
+    return 'active';
+};
 
   $isVisible = function (string $key) use ($stateOf, $vaultActive): bool {
     if ($key === 'boveda_fiscal' && !$vaultActive) return false;
@@ -336,22 +346,9 @@
   );
   $htmlConfigAdv = '';
 
-  $openCuenta  = (bool) ($isMiCuenta || $isEstado || request()->is('cliente/mi-cuenta*') || request()->is('cliente/estado-de-cuenta*'));
-    $openModulos = (bool) (
-    $isFact ||
-    $isSatPortal ||
-    $isSatCenter ||
-    $isSatRfcs ||
-    $isSatCart ||
-    $isSatVault ||
-    $isSatReport ||
-    $isCrm ||
-    $isInv ||
-    $isVentas ||
-    $isRep ||
-    $isRh ||
-    $isTimbres
-  );
+  $openCuenta = true;
+  $openModulos = true;
+  
 @endphp
 
 @once
