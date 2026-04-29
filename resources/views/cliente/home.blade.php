@@ -265,8 +265,14 @@
       : 'Periodo actual';
 @endphp
 
+@php
+  $homeCssVersion = file_exists(public_path('assets/client/css/pages/home.css'))
+      ? filemtime(public_path('assets/client/css/pages/home.css'))
+      : time();
+@endphp
+
 @push('styles')
-  <link rel="stylesheet" href="{{ asset('assets/client/css/pages/home.css') }}">
+  <link rel="stylesheet" href="{{ asset('assets/client/css/pages/home.css') }}?v={{ $homeCssVersion }}">
 @endpush
 
 @section('content')
