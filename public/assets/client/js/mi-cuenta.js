@@ -50,6 +50,30 @@
     setOverlay(false);
   }
 
+  function openConfigTab(tab) {
+    if (!tab) return;
+
+    const modal = $('#configModal');
+    if (!modal) return;
+
+    const tabBtn = $('[data-mc-tab="' + tab + '"]', modal);
+    if (tabBtn) tabBtn.click();
+
+    openDialog(modal);
+  }
+
+  function openInvoicesModal(button) {
+    const modal = $('#invoicesModal');
+    const frame = $('#invoicesFrame');
+    const url = button ? button.getAttribute('data-invoices-url') : '';
+
+    if (frame && url && url !== '#' && frame.getAttribute('src') !== url) {
+      frame.setAttribute('src', url);
+    }
+
+    openDialog(modal);
+  }
+
   document.addEventListener('click', function (e) {
     const sectionBtn = e.target.closest('[data-mc-toggle]');
     if (sectionBtn) {
@@ -81,6 +105,13 @@
         pane.hidden = pane.getAttribute('data-mc-pane') !== tab;
       });
 
+      return;
+    }
+
+    const openConfigWithTab = e.target.closest('[data-mc-open-tab]');
+    if (openConfigWithTab) {
+      e.preventDefault();
+      openConfigTab(openConfigWithTab.getAttribute('data-mc-open-tab'));
       return;
     }
 
@@ -123,16 +154,7 @@
     const invoicesBtn = e.target.closest('[data-open-invoices-modal]');
     if (invoicesBtn) {
       e.preventDefault();
-
-      const modal = $('#invoicesModal');
-      const frame = $('#invoicesFrame');
-      const url = invoicesBtn.getAttribute('data-invoices-url');
-
-      if (frame && url && !frame.getAttribute('src')) {
-        frame.setAttribute('src', url);
-      }
-
-      openDialog(modal);
+      openInvoicesModal(invoicesBtn);
       return;
     }
 
@@ -168,6 +190,9 @@
     if (modalToOpen === 'billing') openDialog($('#billingModal'));
     if (modalToOpen === 'config') openDialog($('#configModal'));
     if (modalToOpen === 'payments') openDialog($('#paymentsModal'));
-    if (modalToOpen === 'invoices') openDialog($('#invoicesModal'));
+
+    if (modalToOpen === 'invoices') {
+      openInvoicesModal($('[data-open-invoices-modal]'));
+    }
   });
 })();

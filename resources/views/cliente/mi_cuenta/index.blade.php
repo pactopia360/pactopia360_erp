@@ -884,7 +884,7 @@
 
   <div class="mc-modal-body" style="padding:0;">
     <iframe
-      id="mcInvFrame"
+      id="invoicesFrame"
       src="about:blank"
       style="width:100%;height: calc(min(88vh, 820px) - 72px); border:0; display:block; background:#fff;"
       loading="lazy"
