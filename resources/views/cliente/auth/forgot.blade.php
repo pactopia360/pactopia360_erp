@@ -2,167 +2,245 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Pactopia360 · Cliente | Recuperar acceso</title>
+  <title>Pactopia360 · Cliente | Recuperar contraseña</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
 
-  <script>document.documentElement.classList.add('page-login-client');</script>
-  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}">
+  <script>
+    document.documentElement.classList.add('page-login-client');
 
-  <style>
-    /* Oculta headers globales si los hubiera */
-    html.page-login-client body > header,
-    html.page-login-client header[role="banner"],
-    html.page-login-client header.navbar,
-    html.page-login-client header.site-header,
-    html.page-login-client .topbar .brand { display:none !important; }
+    (function () {
+      try {
+        var saved = localStorage.getItem('p360_client_login_theme');
+        var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = saved === 'dark' || saved === 'light' ? saved : (systemDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-login-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-login-theme', 'light');
+      }
+    })();
+  </script>
 
-    /* Alertas compactas */
-    .alert-block{border-radius:.6rem;padding:.75rem 1rem;margin-bottom:1rem;font-size:.9rem;line-height:1.4;}
-    .alert-success{background:#dcfce7;border:1px solid #86efac;color:#166534;}
-    .alert-error{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;}
-    .alert-info{background:#eff6ff;border:1px solid #93c5fd;color:#1e3a8a;}
-
-    /* 🔥 FIX: evita overlays “fantasma” que bloquean inputs */
-    .shell, .panel, .card, .form-body, .form-fields, .field { position:relative; z-index:2; }
-    .shell::before, .shell::after,
-    .panel::before, .panel::after,
-    .card::before, .card::after { pointer-events:none !important; }
-    .brand, .brand * { pointer-events:auto; }
-    input, button, a, label, textarea, select { pointer-events:auto !important; }
-
-    /* Consistencia ancho interno */
-    .card .form-head,
-    .card .form-fields,
-    .card .form-actions{ max-width: min(600px, 100% - 100px); }
-    @media (max-width: 900px){
-      .card .form-head,
-      .card .form-fields,
-      .card .form-actions{ max-width: 100%; }
-    }
-
-    .hint{font-size:.85rem;color:#6b7280;}
-    .link-muted{color:#6b7280;text-decoration:none;font-weight:600;}
-    .link-muted:hover{text-decoration:underline;}
-  </style>
+  <link rel="stylesheet" href="{{ asset('assets/client/css/login.css') }}?v={{ @filemtime(public_path('assets/client/css/login.css')) ?: time() }}">
 </head>
 
 <body class="theme-light">
 @php
-  $logoDark  = 'assets/client/logop360dark.png';
-  $lightCandidates = [
-    'assets/client/logop360light.png',
-    'assets/client/logp360light_alt.png',
-    'assets/client/logp360ligjt.png',
-  ];
-  $logoLight = collect($lightCandidates)->first(fn($cand)=>file_exists(public_path($cand))) ?? $lightCandidates[0];
+    use Illuminate\Support\Facades\Route;
 
-  $loginUrl = \Illuminate\Support\Facades\Route::has('cliente.login')
-    ? route('cliente.login')
-    : url('/cliente/login');
+    $logoDark = 'assets/client/img/Pactopia - Letra Blanca.png';
 
-  $postUrl = \Illuminate\Support\Facades\Route::has('cliente.password.email')
-    ? route('cliente.password.email')
-    : url('/cliente/password/email');
+    $loginUrl = Route::has('cliente.login')
+        ? route('cliente.login')
+        : url('/cliente/login');
+
+    $postUrl = Route::has('cliente.password.email')
+        ? route('cliente.password.email')
+        : url('/cliente/password/email');
 @endphp
 
-  <div class="theme-switch">
-    <button type="button" class="theme-btn" id="themeToggle" aria-pressed="false">
-      <span class="icon">🌙</span><span class="label">Modo oscuro</span>
-    </button>
-  </div>
+<main class="login-shell">
+  <section class="login-wrap">
+    <div class="login-left">
+      <div class="login-left__overlay"></div>
 
-  <div class="shell shell--balanced">
-    {{-- IZQUIERDA --}}
-    <section class="brand" aria-label="Recuperar acceso">
-      <div class="brand-inner">
-        <header class="brand-top">
-          <div class="logo local-brand">
-            <img class="logo-img logo-dark"  src="{{ asset($logoDark)  }}" alt="Pactopia360">
-            <img class="logo-img logo-light" src="{{ asset($logoLight) }}" alt="Pactopia360">
-          </div>
-          <h2 class="slogan">Recupera tu acceso en minutos</h2>
-        </header>
+      <a
+        href="https://pactopia.com"
+        class="pactopia-home-btn"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Ir a pactopia.com"
+      >
+        <span class="pactopia-home-btn__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 10.8 12 4l9 6.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6.5 9.8V20h11V9.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 20v-5.2a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2V20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="pactopia-home-btn__tooltip">pactopia.com</span>
+      </a>
 
-        <ul class="points" role="list">
-          <li>🔐 Te enviamos un enlace seguro para crear una nueva contraseña.</li>
-          <li>⏱️ El enlace expira en <b>60 minutos</b>.</li>
-          <li>🧾 Puedes ingresar tu <b>correo</b> o tu <b>RFC</b>.</li>
-          <li>🛡️ Por seguridad, no confirmamos si una cuenta existe.</li>
-        </ul>
-
-        <footer class="brand-foot">
-          <div class="foot-note">© {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.</div>
-        </footer>
+      <div class="login-brand">
+        <img class="brand-logo" src="{{ asset($logoDark) }}" alt="Pactopia360">
+        <div class="brand-subtitle">Portal usuario</div>
       </div>
-    </section>
 
-    {{-- DERECHA --}}
-    <section class="panel" aria-label="Formulario recuperación">
-      <form class="card card-auto" method="POST" action="{{ $postUrl }}" novalidate autocomplete="on">
+      <div class="login-copy">
+        <p class="login-kicker">Portal usuario</p>
+
+        <h1 class="login-title">Recupera tu acceso</h1>
+
+        <p class="login-text">
+          Ingresa tu correo o RFC y te enviaremos un enlace seguro para restablecer tu contraseña.
+        </p>
+
+        <div class="login-register">
+          <a href="{{ $loginUrl }}">
+            ¿Ya tienes cuenta? Inicia sesión
+          </a>
+        </div>
+      </div>
+
+      <div class="login-foot">
+        © {{ date('Y') }} Pactopia SAPI de CV. Todos los derechos reservados.
+      </div>
+    </div>
+
+    <div class="login-right">
+      <form class="auth-card" method="POST" action="{{ $postUrl }}" id="forgotForm" novalidate autocomplete="on">
         @csrf
 
-        <div class="card-brand">
-          <h1 class="title">Recuperar acceso</h1>
+        <div class="auth-toolbar">
+          <button type="button" class="theme-toggle" id="themeToggle" aria-label="Cambiar tema" title="Cambiar tema">
+            <span class="theme-toggle__sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </span>
+
+            <span class="theme-toggle__moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.8 6.8 0 1 0 9.8 9.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
         </div>
 
-        <div aria-live="polite" aria-atomic="true" style="margin-bottom:1rem;">
-          @if (session('ok'))   <div class="alert-block alert-success">{{ session('ok') }}</div>@endif
-          @if (session('info')) <div class="alert-block alert-info">{{ session('info') }}</div>@endif
+        <div class="auth-head">
+          <h2 class="auth-head__title">
+            Recuperar <br> contraseña
+          </h2>
+          <p class="auth-head__sub">
+            Escribe tu correo electrónico o RFC para enviarte el enlace de recuperación.
+          </p>
+        </div>
+
+        <div aria-live="polite" aria-atomic="true">
+          @if (session('ok'))
+            <div class="alert-block alert-success">{{ session('ok') }}</div>
+          @endif
+
+          @if (session('info'))
+            <div class="alert-block alert-info">{{ session('info') }}</div>
+          @endif
+
+          @if (session('error'))
+            <div class="alert-block alert-error">{{ session('error') }}</div>
+          @endif
+
           @if ($errors->any())
-            <div class="alert-block alert-error">@foreach ($errors->all() as $e)<div>• {{ $e }}</div>@endforeach</div>
+            <div class="alert-block alert-error">
+              @foreach ($errors->all() as $e)
+                <div>• {{ $e }}</div>
+              @endforeach
+            </div>
           @endif
         </div>
 
-        <div class="form-body">
-          <div class="form-head">
-            <p class="subtitle">
-              Escribe tu <b>correo</b> o <b>RFC</b> y te enviaremos un enlace de restablecimiento.
-            </p>
-          </div>
+        <div class="auth-form">
+          <div class="field field-icon">
+            <div class="input-shell">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="m5 7 7 5 7-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
 
-          <div class="form-fields">
-            <div class="field">
-              <label for="login">Correo o RFC</label>
               <input
                 class="input @error('login') is-invalid @enderror @error('email') is-invalid @enderror"
-                id="login" name="login" type="text"
+                id="login"
+                name="login"
+                type="text"
                 value="{{ old('login', old('email')) }}"
-                placeholder="micorreo@dominio.com o TU RFC"
-                required autocomplete="username" maxlength="150"
+                placeholder="micorreo@dominio.com o RFC"
+                required
+                autocomplete="username"
+                maxlength="150"
                 inputmode="email"
-              />
+              >
+            </div>
 
-              {{-- Compat: si backend espera "email", mandamos ambos --}}
-              <input type="hidden" name="email" value="{{ old('login', old('email')) }}">
+            <input type="hidden" id="emailHidden" name="email" value="{{ old('login', old('email')) }}">
 
-              <div class="hint" style="margin-top:.35rem;">
-                Si tu cuenta existe, recibirás el enlace por correo.
-              </div>
+            <div class="hint">
+              Si tu cuenta existe, recibirás un correo con instrucciones.
             </div>
           </div>
 
-          <div class="form-actions">
-            <button class="btn" type="submit">Enviar enlace</button>
-            <div class="hint" style="margin-top:.6rem;">
-              <a class="link-muted" href="{{ $loginUrl }}">← Volver a iniciar sesión</a>
+          <div class="auth-actions">
+            <button class="btn-submit" id="btnSubmit" type="submit">
+              Enviar enlace de recuperación
+            </button>
+
+            <div class="hint hint-center">
+              <a class="link-muted" href="{{ $loginUrl }}">
+                ← Volver al inicio de sesión
+              </a>
             </div>
           </div>
         </div>
       </form>
-    </section>
-  </div>
+    </div>
+  </section>
+</main>
 
-  <script>
-    // Autofocus + FIX click (si había overlay extraño)
-    window.addEventListener('load', () => {
-      const el = document.getElementById('login');
-      if (el) {
-        el.removeAttribute('readonly');
-        el.disabled = false;
-        el.focus({ preventScroll: true });
+<script>
+  (function () {
+    const body = document.body;
+    const html = document.documentElement;
+    const btn = document.getElementById('themeToggle');
+    const login = document.getElementById('login');
+    const emailHidden = document.getElementById('emailHidden');
+
+    function applyTheme(theme) {
+      const isDark = theme === 'dark';
+
+      body.classList.toggle('theme-dark', isDark);
+      body.classList.toggle('theme-light', !isDark);
+      html.setAttribute('data-login-theme', isDark ? 'dark' : 'light');
+
+      try {
+        localStorage.setItem('p360_client_login_theme', isDark ? 'dark' : 'light');
+      } catch (e) {}
+
+      if (btn) {
+        btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
       }
-    });
-  </script>
+    }
+
+    try {
+      const saved = localStorage.getItem('p360_client_login_theme');
+      const initial = saved === 'dark' || saved === 'light'
+        ? saved
+        : html.getAttribute('data-login-theme') || 'light';
+
+      applyTheme(initial);
+    } catch (e) {
+      applyTheme('light');
+    }
+
+    if (btn) {
+      btn.addEventListener('click', function () {
+        const current = body.classList.contains('theme-dark') ? 'dark' : 'light';
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+      });
+    }
+
+    if (login && emailHidden) {
+      login.addEventListener('input', function () {
+        emailHidden.value = login.value;
+      });
+
+      setTimeout(function () {
+        login.disabled = false;
+        login.removeAttribute('readonly');
+        login.focus({ preventScroll: true });
+      }, 180);
+    }
+  })();
+</script>
 </body>
 </html>
