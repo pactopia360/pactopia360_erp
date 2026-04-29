@@ -276,6 +276,9 @@
 @endpush
 
 @section('content')
+
+<link rel="stylesheet" href="{{ asset('assets/client/css/pages/home.css') }}?v={{ $homeCssVersion }}">
+
 <div class="p360-home p360-home-clean">
 
   <section class="p360-clean-hero">
