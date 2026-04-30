@@ -41,6 +41,7 @@ use App\Http\Controllers\Cliente\ImpersonateController;
 use App\Http\Middleware\ClientSessionConfig;
 use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Controllers\Cliente\ModulosController;
+use App\Http\Controllers\Cliente\NominaEmpleadosController;
 
 
 // ✅ Mi cuenta / Facturas (ZIP estados de cuenta admin SOT)
@@ -690,6 +691,27 @@ Route::middleware(['auth:web', 'account.active'])
             Route::delete('/{producto}', [ClienteProductos::class, 'destroy'])->name('destroy');
         });
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | RECURSOS HUMANOS / EMPLEADOS NÓMINA
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('rh')->name('rh.')->group(function () {
+            Route::get('/', function () {
+                return redirect()->route('cliente.rh.empleados.index');
+            })->name('index');
+
+            Route::prefix('empleados')->name('empleados.')->controller(NominaEmpleadosController::class)->group(function () {
+                Route::get('/', 'index')->name('index');
+                Route::post('/', 'store')->name('store');
+                Route::put('/{empleado}', 'update')->whereNumber('empleado')->name('update');
+                Route::delete('/{empleado}', 'destroy')->whereNumber('empleado')->name('destroy');
+                Route::post('/{empleado}/toggle', 'toggle')->whereNumber('empleado')->name('toggle');
+            });
+        });
+
+        
         /*
         |--------------------------------------------------------------------------
         | Módulos cliente

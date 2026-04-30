@@ -23,6 +23,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\Cliente\SepomexCodigoPostal;
 use App\Services\Billing\FacturotopiaService;
 use Illuminate\Support\Facades\View as ViewFactory;
+use App\Models\Cliente\EmpleadoNomina;
 
 
 class FacturacionController extends Controller
@@ -664,145 +665,155 @@ class FacturacionController extends Controller
     }
 
     public function index(Request $request): View
-{
-    [$from, $to] = $this->resolvePeriod($request);
-    $base = $this->cfdiBaseQuery($request);
+    {
+        [$from, $to] = $this->resolvePeriod($request);
+        $base = $this->cfdiBaseQuery($request);
 
-    $cfdiTable = (new Cfdi)->getTable();
-    $conn = $this->cfdiConn();
+        $cuenta = $this->currentCuenta();
 
-    $baseColumns = [
-        'id',
-        'uuid',
-        'serie',
-        'folio',
-        'subtotal',
-        'iva',
-        'total',
-        'fecha',
-        'estatus',
-        'cliente_id',
-        'receptor_id',
-        'metodo_pago',
-        'forma_pago',
-    ];
+        $cfdiTable = (new Cfdi)->getTable();
+        $conn = $this->cfdiConn();
 
-    $optionalColumns = [
-        'tipo_comprobante',
-        'tipo_documento',
-        'cuenta_id',
-    ];
-
-    $columns = $baseColumns;
-
-    foreach ($optionalColumns as $col) {
-        if ($this->hasColumn($cfdiTable, $col, $conn)) {
-            $columns[] = $col;
-        }
-    }
-
-    $conceptoTable = 'cfdi_conceptos';
-
-    $conceptoColumns = [
-        'id',
-        'cfdi_id',
-        'descripcion',
-        'cantidad',
-        'precio_unitario',
-    ];
-
-    foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total'] as $col) {
-        if ($this->hasColumn($conceptoTable, $col, $conn)) {
-            $conceptoColumns[] = $col;
-        }
-    }
-
-    $q = $this->applyFilters(
-        (clone $base)->whereBetween('fecha', [$from, $to]),
-        $request
-    )->with([
-        'cliente:id,razon_social,nombre_comercial,rfc',
-        'receptor:id,razon_social,nombre_comercial,rfc',
-        'conceptos' => function ($q) use ($conceptoColumns) {
-            $q->select($conceptoColumns);
-        },
-    ]);
-
-    $perPage = (int) $request->integer('per_page', 15);
-
-    $cfdis = $q->orderByDesc('fecha')
-        ->paginate($perPage, $columns)
-        ->withQueryString();
-
-    $current = $cfdis->getCollection()->first();
-
-    if (! $current) {
-        $current = (object) [
-            'id' => null,
-            'uuid' => null,
-            'serie' => null,
-            'folio' => null,
-            'subtotal' => 0,
-            'iva' => 0,
-            'total' => 0,
-            'fecha' => null,
-            'estatus' => null,
-            'cliente_id' => null,
+        $baseColumns = [
+            'id',
+            'uuid',
+            'serie',
+            'folio',
+            'subtotal',
+            'iva',
+            'total',
+            'fecha',
+            'estatus',
+            'cliente_id',
+            'receptor_id',
+            'metodo_pago',
+            'forma_pago',
         ];
+
+        $optionalColumns = [
+            'tipo_comprobante',
+            'tipo_documento',
+            'cuenta_id',
+        ];
+
+        $columns = $baseColumns;
+
+        foreach ($optionalColumns as $col) {
+            if ($this->hasColumn($cfdiTable, $col, $conn)) {
+                $columns[] = $col;
+            }
+        }
+
+        $conceptoTable = 'cfdi_conceptos';
+
+        $conceptoColumns = [
+            'id',
+            'cfdi_id',
+            'descripcion',
+            'cantidad',
+            'precio_unitario',
+        ];
+
+        foreach (['importe', 'iva_importe', 'subtotal', 'iva', 'total'] as $col) {
+            if ($this->hasColumn($conceptoTable, $col, $conn)) {
+                $conceptoColumns[] = $col;
+            }
+        }
+
+        $q = $this->applyFilters(
+            (clone $base)->whereBetween('fecha', [$from, $to]),
+            $request
+        )->with([
+            'cliente:id,razon_social,nombre_comercial,rfc',
+            'receptor:id,razon_social,nombre_comercial,rfc',
+            'conceptos' => function ($q) use ($conceptoColumns) {
+                $q->select($conceptoColumns);
+            },
+        ]);
+
+        $perPage = (int) $request->integer('per_page', 15);
+
+        $cfdis = $q->orderByDesc('fecha')
+            ->paginate($perPage, $columns)
+            ->withQueryString();
+
+        $current = $cfdis->getCollection()->first();
+
+        if (! $current) {
+            $current = (object) [
+                'id' => null,
+                'uuid' => null,
+                'serie' => null,
+                'folio' => null,
+                'subtotal' => 0,
+                'iva' => 0,
+                'total' => 0,
+                'fecha' => null,
+                'estatus' => null,
+                'cliente_id' => null,
+            ];
+        }
+
+        $kpis = $this->calcKpis($request, $from, $to);
+        $series = $this->buildSeries($request, $from, $to);
+
+        $summary = $this->accountSummarySafe();
+
+        $isPro = $this->resolvePortalIsProFromAdmin($cuenta, $summary);
+        $plan = $isPro ? 'PRO' : 'FREE';
+        $planKey = $isPro ? 'pro' : 'free';
+
+        $summary['is_pro'] = $isPro;
+        $summary['plan'] = $plan;
+        $summary['plan_key'] = $planKey;
+
+        $accountFeatures = [
+            'is_pro' => $isPro,
+            'blocked' => (bool) ($summary['blocked'] ?? false),
+            'cfdi_manual' => true,
+            'cfdi_emitidos' => true,
+            'cfdi_descargas' => true,
+            'cfdi_cancelacion' => true,
+            'catalogos' => true,
+            'asistente_fiscal' => true,
+            'validacion_inteligente' => true,
+            'autollenado_receptor' => true,
+            'rep_control' => true,
+            'cfdi_masivo' => $isPro,
+            'excel_templates' => $isPro,
+            'batch_processing' => $isPro,
+            'nomina_masiva' => $isPro,
+            'cfdi_nomina_pro' => $isPro,
+            'rep_masivo' => $isPro,
+            'carta_porte_masiva' => $isPro,
+            'api_integrations' => $isPro,
+            'automation_rules' => $isPro,
+        ];
+
+        return view('cliente.facturacion.index', [
+            'summary' => $summary,
+            'plan' => $plan,
+            'planKey' => $planKey,
+            'isPro' => $isPro,
+            'isProPlan' => $isPro,
+            'accountFeatures' => $accountFeatures,
+            'period_from' => $from,
+            'period_to' => $to,
+            'kpis' => $kpis,
+            'series' => $series,
+            'cfdis' => $cfdis,
+            'cfdi' => $current,
+            'filters' => [
+                'q' => trim((string) $request->input('q', '')),
+                'status' => trim((string) $request->input('status', '')),
+                'month' => trim((string) $request->input('month', '')),
+                'mes' => (int) Carbon::parse($from)->format('m'),
+                'anio' => (int) Carbon::parse($from)->format('Y'),
+            ],
+        ]);
     }
 
-    $kpis = $this->calcKpis($request, $from, $to);
-    $series = $this->buildSeries($request, $from, $to);
 
-    $summary = $this->accountSummarySafe();
-    $isPro = (bool) ($summary['is_pro'] ?? false);
-    $plan = $isPro ? 'PRO' : 'FREE';
-    $planKey = $isPro ? 'pro' : 'free';
-
-    $accountFeatures = [
-        'is_pro' => $isPro,
-        'blocked' => (bool) ($summary['blocked'] ?? false),
-        'cfdi_manual' => true,
-        'cfdi_emitidos' => true,
-        'cfdi_descargas' => true,
-        'cfdi_cancelacion' => true,
-        'catalogos' => true,
-        'asistente_fiscal' => true,
-        'validacion_inteligente' => true,
-        'autollenado_receptor' => true,
-        'rep_control' => true,
-        'cfdi_masivo' => $isPro,
-        'excel_templates' => $isPro,
-        'batch_processing' => $isPro,
-        'nomina_masiva' => $isPro,
-        'cfdi_nomina_pro' => $isPro,
-        'rep_masivo' => $isPro,
-        'carta_porte_masiva' => $isPro,
-        'api_integrations' => $isPro,
-        'automation_rules' => $isPro,
-    ];
-
-    return view('cliente.facturacion.index', [
-        'summary' => $summary,
-        'plan' => $plan,
-        'planKey' => $planKey,
-        'isPro' => $isPro,
-        'accountFeatures' => $accountFeatures,
-        'period_from' => $from,
-        'period_to' => $to,
-        'kpis' => $kpis,
-        'series' => $series,
-        'cfdis' => $cfdis,
-        'cfdi' => $current,
-        'filters' => [
-            'q' => trim((string) $request->input('q', '')),
-            'status' => trim((string) $request->input('status', '')),
-            'month' => trim((string) $request->input('month', '')),
-            'mes' => (int) Carbon::parse($from)->format('m'),
-            'anio' => (int) Carbon::parse($from)->format('Y'),
-        ],
-    ]);
-}
     public function create(?Request $request = null): View
     {
         $request = $request ?: request();
@@ -885,6 +896,48 @@ class FacturacionController extends Controller
             }
         );
 
+        $empleadosNomina = collect();
+
+if ($cuenta) {
+    try {
+        $empleadosNomina = EmpleadoNomina::query()
+            ->where('cuenta_id', (string) $cuenta->id)
+            ->where('activo', true)
+            ->orderBy('nombre_completo')
+            ->limit(500)
+            ->get([
+                'id',
+                'numero_empleado',
+                'rfc',
+                'curp',
+                'nss',
+                'nombre',
+                'apellido_paterno',
+                'apellido_materno',
+                'nombre_completo',
+                'email',
+                'codigo_postal',
+                'regimen_fiscal',
+                'uso_cfdi',
+                'fecha_inicio_relacion_laboral',
+                'tipo_contrato',
+                'tipo_jornada',
+                'tipo_regimen',
+                'periodicidad_pago',
+                'departamento',
+                'puesto',
+                'riesgo_puesto',
+                'salario_base_cot_apor',
+                'salario_diario_integrado',
+                'banco',
+                'cuenta_bancaria',
+                'sindicalizado',
+            ]);
+    } catch (\Throwable $e) {
+        $empleadosNomina = collect();
+    }
+}
+
         $productos = $this->safeList(
             'productos',
             ['id', 'sku', 'descripcion', 'precio_unitario', 'iva_tasa', 'cuenta_id'],
@@ -900,10 +953,16 @@ class FacturacionController extends Controller
             }
         );
 
+        $summary = $this->accountSummarySafe();
+        $isProPlan = (bool) ($summary['is_pro'] ?? false);
+
         return view('cliente.facturacion.nuevo', [
+            'empleadosNomina' => $empleadosNomina,
             'emisores' => $emisores,
             'receptores' => $receptores,
             'productos' => $productos,
+            'summary' => $summary,
+            'isProPlan' => $isProPlan,
             'fiscalCatalogs' => $this->fiscalCatalogs(),
             'fiscalAi' => [
                 'enabled' => true,
@@ -919,63 +978,73 @@ class FacturacionController extends Controller
         ]);
     }
 
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'cliente_id' => ['required', 'string', 'max:80'],
-            'receptor_id' => 'required|integer',
-            'version_cfdi' => 'nullable|string|max:10',
-            'tipo_comprobante' => 'nullable|string|max:5',
-            'tipo_documento' => 'nullable|string|max:5',
-            'serie' => 'nullable|string|max:10',
-            'folio' => 'nullable|string|max:20',
-            'fecha' => 'nullable|date',
-            'moneda' => 'nullable|string|max:10',
-            'tipo_cambio' => 'nullable|numeric|min:0',
-            'metodo_pago' => 'nullable|string|max:10',
-            'forma_pago' => 'nullable|string|max:10',
-            'condiciones_pago' => 'nullable|string|max:120',
-            'uso_cfdi' => 'nullable|string|max:10',
-            'regimen_receptor' => 'nullable|string|max:10',
-            'cp_receptor' => 'nullable|string|max:10',
-            'tipo_relacion' => 'nullable|string|max:10',
-            'uuid_relacionado' => 'nullable|string|max:60',
-            'observaciones' => 'nullable|string|max:2000',
-            'conceptos' => 'required|array|min:1',
-            'conceptos.*.producto_id' => 'nullable|integer',
-            'conceptos.*.descripcion' => 'required|string|max:500',
-            'conceptos.*.cantidad' => 'required|numeric|min:0.0001',
-            'conceptos.*.precio_unitario' => 'required|numeric|min:0',
-            'conceptos.*.iva_tasa' => 'nullable|numeric|min:0',
-            'conceptos.*.descuento' => 'nullable|numeric|min:0',
-            'conceptos.*.clave_producto_sat' => 'nullable|string|max:20',
-            'conceptos.*.clave_unidad_sat' => 'nullable|string|max:20',
-            'conceptos.*.objeto_impuesto' => 'nullable|string|max:10',
-                        'adenda_activa' => 'nullable|boolean',
-            'adenda_tipo' => 'nullable|string|max:80',
-            'adenda' => 'nullable|array',
-            'adenda.orden_compra' => 'nullable|string|max:120',
-            'adenda.numero_proveedor' => 'nullable|string|max:120',
-            'adenda.numero_tienda' => 'nullable|string|max:120',
-            'adenda.gln' => 'nullable|string|max:120',
-            'adenda.referencia_entrega' => 'nullable|string|max:160',
-            'adenda.contrato' => 'nullable|string|max:160',
-            'adenda.centro_costos' => 'nullable|string|max:160',
-            'adenda.fecha_entrega' => 'nullable|date',
-            'adenda.observaciones' => 'nullable|string|max:1000',
-        ]);
+    public function store(Request $request, FacturotopiaService $facturotopia)
+{
+    $data = $request->validate([
+        'accion_cfdi' => 'nullable|string|in:borrador,timbrar',
+        'cliente_id' => ['required', 'string', 'max:80'],
+        'receptor_id' => 'nullable|integer',
+        'empleado_nomina_id' => 'nullable|integer',
+        'version_cfdi' => 'nullable|string|max:10',
+        'tipo_comprobante' => 'nullable|string|max:5',
+        'tipo_documento' => 'nullable|string|max:5',
+        'serie' => 'nullable|string|max:10',
+        'folio' => 'nullable|string|max:20',
+        'fecha' => 'nullable|date',
+        'moneda' => 'nullable|string|max:10',
+        'tipo_cambio' => 'nullable|numeric|min:0',
+        'metodo_pago' => 'nullable|string|max:10',
+        'forma_pago' => 'nullable|string|max:10',
+        'condiciones_pago' => 'nullable|string|max:120',
+        'uso_cfdi' => 'nullable|string|max:10',
+        'regimen_receptor' => 'nullable|string|max:10',
+        'cp_receptor' => 'nullable|string|max:10',
+        'tipo_relacion' => 'nullable|string|max:10',
+        'uuid_relacionado' => 'nullable|string|max:60',
+        'observaciones' => 'nullable|string|max:2000',
 
-        $cuenta = $this->currentCuenta();
+        'conceptos' => 'nullable|array',
+        'conceptos.*.producto_id' => 'nullable|integer',
+        'conceptos.*.descripcion' => 'nullable|string|max:500',
+        'conceptos.*.cantidad' => 'nullable|numeric|min:0.0001',
+        'conceptos.*.precio_unitario' => 'nullable|numeric|min:0',
+        'conceptos.*.iva_tasa' => 'nullable|numeric|min:0',
+        'conceptos.*.descuento' => 'nullable|numeric|min:0',
+        'conceptos.*.clave_producto_sat' => 'nullable|string|max:20',
+        'conceptos.*.clave_unidad_sat' => 'nullable|string|max:20',
+        'conceptos.*.objeto_impuesto' => 'nullable|string|max:10',
 
-        if (!$cuenta) {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
-                ]);
-        }
+        'nomina_total_percepciones' => 'nullable|numeric|min:0',
+        'nomina_total_deducciones' => 'nullable|numeric|min:0',
 
-        $emisorCredential = SatCredential::query()
+        'adenda_activa' => 'nullable|boolean',
+        'adenda_tipo' => 'nullable|string|max:80',
+        'adenda' => 'nullable|array',
+        'adenda.orden_compra' => 'nullable|string|max:120',
+        'adenda.numero_proveedor' => 'nullable|string|max:120',
+        'adenda.numero_tienda' => 'nullable|string|max:120',
+        'adenda.gln' => 'nullable|string|max:120',
+        'adenda.referencia_entrega' => 'nullable|string|max:160',
+        'adenda.contrato' => 'nullable|string|max:160',
+        'adenda.centro_costos' => 'nullable|string|max:160',
+        'adenda.fecha_entrega' => 'nullable|date',
+        'adenda.observaciones' => 'nullable|string|max:1000',
+    ]);
+
+    $cuenta = $this->currentCuenta();
+
+    if (!$cuenta) {
+        return back()
+            ->withInput()
+            ->withErrors([
+                'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
+            ]);
+    }
+
+    $tipoDocumento = strtoupper((string) ($data['tipo_documento'] ?? $data['tipo_comprobante'] ?? 'I'));
+    $tipoDocumento = in_array($tipoDocumento, ['I', 'E', 'T', 'P', 'N'], true) ? $tipoDocumento : 'I';
+
+    $emisorCredential = SatCredential::query()
         ->where(function ($q) use ($cuenta) {
             $q->where('cuenta_id', (string) $cuenta->id)
                 ->orWhere('account_id', (string) $cuenta->id);
@@ -983,17 +1052,89 @@ class FacturacionController extends Controller
         ->where('id', $data['cliente_id'])
         ->first();
 
-        if (!$emisorCredential) {
+    if (!$emisorCredential) {
         return back()
             ->withInput()
             ->withErrors([
                 'cliente_id' => 'El RFC emisor seleccionado no pertenece a esta cuenta.',
             ]);
+    }
+
+    $receptor = null;
+    $empleadoNomina = null;
+
+    $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
+    $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
+
+    if ($tipoDocumento === 'N') {
+        $empleadoNomina = EmpleadoNomina::query()
+            ->where('cuenta_id', (string) $cuenta->id)
+            ->where('activo', true)
+            ->where('id', (int) ($data['empleado_nomina_id'] ?? 0))
+            ->first();
+
+        if (!$empleadoNomina) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'empleado_nomina_id' => 'Selecciona un empleado activo para generar CFDI de nómina.',
+                ]);
         }
 
+        if (empty($empleadoNomina->codigo_postal) || !preg_match('/^\d{5}$/', (string) $empleadoNomina->codigo_postal)) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'empleado_nomina_id' => 'El empleado seleccionado no tiene CP fiscal válido.',
+                ]);
+        }
+
+        $percepciones = round((float) ($data['nomina_total_percepciones'] ?? 0), 2);
+        $deducciones = round((float) ($data['nomina_total_deducciones'] ?? 0), 2);
+
+        if ($percepciones <= 0) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'nomina_total_percepciones' => 'Captura el total de percepciones de la nómina.',
+                ]);
+        }
+
+        if ($deducciones > $percepciones) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'nomina_total_deducciones' => 'Las deducciones no pueden ser mayores que las percepciones.',
+                ]);
+        }
+
+        $metodoPago = 'PUE';
+        $formaPago = '99';
+
+        $data['uso_cfdi'] = 'CN01';
+        $data['regimen_receptor'] = $empleadoNomina->regimen_fiscal ?: '605';
+        $data['cp_receptor'] = $empleadoNomina->codigo_postal;
+        $data['adenda_activa'] = false;
+        $data['adenda_tipo'] = null;
+        $data['adenda'] = [];
+        $data['tipo_relacion'] = null;
+        $data['uuid_relacionado'] = null;
+
+        $data['conceptos'] = [[
+            'producto_id' => null,
+            'descripcion' => 'Pago de nómina',
+            'cantidad' => 1,
+            'precio_unitario' => $percepciones,
+            'iva_tasa' => 0,
+            'descuento' => $deducciones,
+            'clave_producto_sat' => '84111505',
+            'clave_unidad_sat' => 'ACT',
+            'objeto_impuesto' => '01',
+        ]];
+    } else {
         $receptor = Receptor::query()
             ->where('cuenta_id', $cuenta->id)
-            ->where('id', $data['receptor_id'])
+            ->where('id', (int) ($data['receptor_id'] ?? 0))
             ->first();
 
         if (!$receptor) {
@@ -1004,22 +1145,235 @@ class FacturacionController extends Controller
                 ]);
         }
 
-        $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
-        $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
-        $tipoDocumento = strtoupper((string) ($data['tipo_documento'] ?? $data['tipo_comprobante'] ?? 'I'));
+        if (empty($data['conceptos']) || !is_array($data['conceptos'])) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'conceptos' => 'Agrega al menos un concepto para este CFDI.',
+                ]);
+        }
+
+        foreach ($data['conceptos'] as $idx => $concepto) {
+            if (empty($concepto['descripcion'])) {
+                return back()->withInput()->withErrors([
+                    "conceptos.{$idx}.descripcion" => 'La descripción del concepto es obligatoria.',
+                ]);
+            }
+
+            if ((float) ($concepto['cantidad'] ?? 0) <= 0) {
+                return back()->withInput()->withErrors([
+                    "conceptos.{$idx}.cantidad" => 'La cantidad del concepto debe ser mayor a cero.',
+                ]);
+            }
+
+            if ((float) ($concepto['precio_unitario'] ?? 0) < 0) {
+                return back()->withInput()->withErrors([
+                    "conceptos.{$idx}.precio_unitario" => 'El precio unitario no puede ser negativo.',
+                ]);
+            }
+        }
 
         if ($metodoPago === 'PPD') {
             $formaPago = '99';
         }
+    }
 
-        $subtotal = 0.0;
-        $descuento = 0.0;
-        $iva = 0.0;
-        $total = 0.0;
+    $subtotal = 0.0;
+    $descuento = 0.0;
+    $iva = 0.0;
+    $total = 0.0;
 
-        foreach ($data['conceptos'] as $c) {
-            $cant = (float) $c['cantidad'];
-            $ppu = (float) $c['precio_unitario'];
+    foreach (($data['conceptos'] ?? []) as $c) {
+        $cant = (float) ($c['cantidad'] ?? 0);
+        $ppu = (float) ($c['precio_unitario'] ?? 0);
+        $desc = (float) ($c['descuento'] ?? 0);
+        $tasa = isset($c['iva_tasa']) ? (float) $c['iva_tasa'] : 0.16;
+
+        $lineSubtotal = round($cant * $ppu, 4);
+        $lineDesc = min($lineSubtotal, round($desc, 4));
+        $base = max(0, $lineSubtotal - $lineDesc);
+        $lineIva = round($base * $tasa, 4);
+        $lineTotal = round($base + $lineIva, 4);
+
+        $subtotal += $lineSubtotal;
+        $descuento += $lineDesc;
+        $iva += $lineIva;
+        $total += $lineTotal;
+    }
+
+    $subtotal = round($subtotal, 2);
+    $descuento = round($descuento, 2);
+    $iva = round($iva, 2);
+    $total = round($total, 2);
+
+    $adendaActiva = $tipoDocumento === 'N' ? false : (bool) ($data['adenda_activa'] ?? false);
+    $adendaTipo = $adendaActiva ? trim((string) ($data['adenda_tipo'] ?? '')) : null;
+    $adendaData = $adendaActiva ? array_filter((array) ($data['adenda'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
+
+    if ($adendaActiva && $adendaTipo === '') {
+        return back()
+            ->withInput()
+            ->withErrors([
+                'adenda_tipo' => 'Selecciona el tipo de adenda comercial.',
+            ]);
+    }
+
+    if ($adendaActiva && in_array($adendaTipo, ['walmart', 'soriana', 'liverpool', 'chedraui', 'amazon', 'mercado_libre', 'oxxo_femsa'], true)) {
+        if (empty($adendaData['orden_compra']) || empty($adendaData['numero_proveedor'])) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'adenda' => 'Para esta adenda captura orden de compra y número de proveedor.',
+                ]);
+        }
+    }
+
+    $adendaXml = $adendaActiva ? $this->buildAdendaXml($adendaTipo, $adendaData) : null;
+
+    $assistant = $this->fiscalAssistant([
+        'rfc' => $tipoDocumento === 'N' ? $empleadoNomina?->rfc : $receptor?->rfc,
+        'regimen_receptor' => $tipoDocumento === 'N'
+            ? ($empleadoNomina?->regimen_fiscal ?: '605')
+            : ($data['regimen_receptor'] ?? $receptor?->regimen_fiscal),
+        'cp_receptor' => $tipoDocumento === 'N'
+            ? $empleadoNomina?->codigo_postal
+            : ($data['cp_receptor'] ?? $receptor?->codigo_postal),
+        'uso_cfdi' => $tipoDocumento === 'N'
+            ? 'CN01'
+            : ($data['uso_cfdi'] ?? $receptor?->uso_cfdi),
+        'metodo_pago' => $metodoPago,
+        'forma_pago' => $formaPago,
+        'tipo_documento' => $tipoDocumento,
+        'total' => $total,
+    ]);
+
+    if (!$assistant['ok']) {
+        return back()
+            ->withInput()
+            ->withErrors([
+                'asistente_fiscal' => implode(' ', $assistant['errors']),
+            ]);
+    }
+
+    $conn = $this->cfdiConn();
+    $cfdiModel = new Cfdi;
+    $conceptoModel = new CfdiConcepto;
+    $cfdiTable = $cfdiModel->getTable();
+    $conceptoTable = $conceptoModel->getTable();
+    $clienteIdForCfdi = is_numeric($cuenta->id) ? (int) $cuenta->id : 0;
+    $cuentaIdForCfdi = (string) $cuenta->id;
+    $uuidTemp = 'BORRADOR-' . strtoupper((string) Str::uuid());
+
+    $accionCfdi = strtolower((string) ($data['accion_cfdi'] ?? $request->input('accion_cfdi', 'borrador')));
+    $accionCfdi = $accionCfdi === 'timbrar' ? 'timbrar' : 'borrador';
+
+    $cfdiId = null;
+
+    DB::connection($conn)->transaction(function () use (
+        &$cfdiId,
+        $conn,
+        $cfdiTable,
+        $conceptoTable,
+        $data,
+        $subtotal,
+        $descuento,
+        $iva,
+        $total,
+        $uuidTemp,
+        $metodoPago,
+        $formaPago,
+        $tipoDocumento,
+        $assistant,
+        $clienteIdForCfdi,
+        $cuentaIdForCfdi,
+        $emisorCredential,
+        $adendaTipo,
+        $adendaData,
+        $adendaActiva,
+        $adendaXml,
+        $empleadoNomina
+    ) {
+        $now = now();
+
+        $cfdiPayload = [
+            'cliente_id' => $clienteIdForCfdi,
+            'cuenta_id' => $cuentaIdForCfdi,
+            'emisor_credential_id' => $emisorCredential->id,
+            'emisor_rfc' => $emisorCredential->rfc,
+            'emisor_razon_social' => $emisorCredential->razon_social,
+            'rfc_emisor' => $emisorCredential->rfc,
+            'razon_emisor' => $emisorCredential->razon_social,
+
+            'receptor_id' => $tipoDocumento === 'N' ? null : ($data['receptor_id'] ?? null),
+            'empleado_nomina_id' => $tipoDocumento === 'N' ? $empleadoNomina?->id : null,
+            'receptor_nomina_json' => $tipoDocumento === 'N' ? json_encode([
+                'id' => $empleadoNomina?->id,
+                'numero_empleado' => $empleadoNomina?->numero_empleado,
+                'rfc' => $empleadoNomina?->rfc,
+                'curp' => $empleadoNomina?->curp,
+                'nss' => $empleadoNomina?->nss,
+                'nombre_completo' => $empleadoNomina?->nombre_completo,
+                'codigo_postal' => $empleadoNomina?->codigo_postal,
+                'regimen_fiscal' => $empleadoNomina?->regimen_fiscal ?: '605',
+                'uso_cfdi' => 'CN01',
+                'departamento' => $empleadoNomina?->departamento,
+                'puesto' => $empleadoNomina?->puesto,
+                'tipo_contrato' => $empleadoNomina?->tipo_contrato,
+                'tipo_jornada' => $empleadoNomina?->tipo_jornada,
+                'tipo_regimen' => $empleadoNomina?->tipo_regimen,
+                'periodicidad_pago' => $empleadoNomina?->periodicidad_pago,
+                'fecha_inicio_relacion_laboral' => optional($empleadoNomina?->fecha_inicio_relacion_laboral)->toDateString(),
+                'salario_base_cot_apor' => $empleadoNomina?->salario_base_cot_apor,
+                'salario_diario_integrado' => $empleadoNomina?->salario_diario_integrado,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+
+            'uuid' => $uuidTemp,
+            'serie' => $data['serie'] ?? null,
+            'folio' => $data['folio'] ?? null,
+            'fecha' => $data['fecha'] ?? $now,
+            'version_cfdi' => $data['version_cfdi'] ?? '4.0',
+            'tipo_comprobante' => $tipoDocumento,
+            'tipo_documento' => $tipoDocumento,
+            'moneda' => $data['moneda'] ?? 'MXN',
+            'tipo_cambio' => $data['tipo_cambio'] ?? null,
+            'metodo_pago' => $metodoPago,
+            'forma_pago' => $formaPago,
+            'condiciones_pago' => $tipoDocumento === 'N' ? null : ($data['condiciones_pago'] ?? null),
+            'uso_cfdi' => $tipoDocumento === 'N' ? 'CN01' : ($data['uso_cfdi'] ?? 'G03'),
+            'regimen_receptor' => $tipoDocumento === 'N' ? ($empleadoNomina?->regimen_fiscal ?: '605') : ($data['regimen_receptor'] ?? null),
+            'cp_receptor' => $tipoDocumento === 'N' ? $empleadoNomina?->codigo_postal : ($data['cp_receptor'] ?? null),
+            'tipo_relacion' => $tipoDocumento === 'N' ? null : ($data['tipo_relacion'] ?? null),
+            'uuid_relacionado' => $tipoDocumento === 'N' ? null : ($data['uuid_relacionado'] ?? null),
+            'subtotal' => $subtotal,
+            'descuento' => $descuento,
+            'iva' => $iva,
+            'total' => $total,
+            'saldo_original' => $total,
+            'saldo_pagado' => 0,
+            'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
+            'estatus' => 'borrador',
+            'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
+            'ia_fiscal_score' => $assistant['score'],
+            'ia_fiscal_nivel' => $assistant['nivel'],
+            'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
+            'observaciones' => $data['observaciones'] ?? null,
+            'adenda_tipo' => $tipoDocumento === 'N' ? null : $adendaTipo,
+            'adenda_json' => ($tipoDocumento !== 'N' && $adendaActiva) ? json_encode([
+                'tipo' => $adendaTipo,
+                'datos' => $adendaData,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            'adenda_xml' => $tipoDocumento === 'N' ? null : $adendaXml,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+
+        $cfdiId = DB::connection($conn)->table($cfdiTable)->insertGetId($cfdiPayload);
+
+        foreach (($data['conceptos'] ?? []) as $c) {
+            $cant = (float) ($c['cantidad'] ?? 0);
+            $ppu = (float) ($c['precio_unitario'] ?? 0);
             $desc = (float) ($c['descuento'] ?? 0);
             $tasa = isset($c['iva_tasa']) ? (float) $c['iva_tasa'] : 0.16;
 
@@ -1029,188 +1383,46 @@ class FacturacionController extends Controller
             $lineIva = round($base * $tasa, 4);
             $lineTotal = round($base + $lineIva, 4);
 
-            $subtotal += $lineSubtotal;
-            $descuento += $lineDesc;
-            $iva += $lineIva;
-            $total += $lineTotal;
-        }
-
-        $subtotal = round($subtotal, 2);
-        $descuento = round($descuento, 2);
-        $iva = round($iva, 2);
-        $total = round($total, 2);
-
-        $adendaActiva = (bool) ($data['adenda_activa'] ?? false);
-        $adendaTipo = $adendaActiva ? trim((string) ($data['adenda_tipo'] ?? '')) : null;
-        $adendaData = $adendaActiva ? array_filter((array) ($data['adenda'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
-
-        if ($adendaActiva && $adendaTipo === '') {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'adenda_tipo' => 'Selecciona el tipo de adenda comercial.',
-                ]);
-        }
-
-        if ($adendaActiva && in_array($adendaTipo, ['walmart', 'soriana', 'liverpool', 'chedraui', 'amazon', 'mercado_libre', 'oxxo_femsa'], true)) {
-            if (empty($adendaData['orden_compra']) || empty($adendaData['numero_proveedor'])) {
-                return back()
-                    ->withInput()
-                    ->withErrors([
-                        'adenda' => 'Para esta adenda captura orden de compra y número de proveedor.',
-                    ]);
-            }
-        }
-
-        $adendaXml = $adendaActiva ? $this->buildAdendaXml($adendaTipo, $adendaData) : null;
-
-        $assistant = $this->fiscalAssistant([
-            'rfc' => $receptor?->rfc,
-            'regimen_receptor' => $data['regimen_receptor'] ?? $receptor?->regimen_fiscal,
-            'cp_receptor' => $data['cp_receptor'] ?? $receptor?->codigo_postal,
-            'uso_cfdi' => $data['uso_cfdi'] ?? $receptor?->uso_cfdi,
-            'metodo_pago' => $metodoPago,
-            'forma_pago' => $formaPago,
-            'tipo_documento' => $tipoDocumento,
-            'total' => $total,
-        ]);
-
-        if (!$assistant['ok']) {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'asistente_fiscal' => implode(' ', $assistant['errors']),
-                ]);
-        }
-
-        $conn = $this->cfdiConn();
-        $cfdiModel = new Cfdi;
-        $conceptoModel = new CfdiConcepto;
-        $cfdiTable = $cfdiModel->getTable();
-        $conceptoTable = $conceptoModel->getTable();
-        $clienteIdForCfdi = is_numeric($cuenta->id) ? (int) $cuenta->id : 0;
-        $cuentaIdForCfdi = (string) $cuenta->id;
-        $uuidTemp = 'BORRADOR-' . strtoupper((string) Str::uuid());
-
-        DB::connection($conn)->transaction(function () use (
-                    $conn,
-                    $cfdiTable,
-                    $conceptoTable,
-                    $data,
-                    $subtotal,
-                    $descuento,
-                    $iva,
-                    $total,
-                    $uuidTemp,
-                    $metodoPago,
-                    $formaPago,
-                    $tipoDocumento,
-                    $assistant,
-                    $clienteIdForCfdi,
-                    $cuentaIdForCfdi,
-                    $emisorCredential,
-                    $adendaTipo,
-                    $adendaData,
-                    $adendaActiva,
-                    $adendaXml
-                ) {
-            $now = now();
-
-            $cfdiPayload = [
-                'cliente_id' => $clienteIdForCfdi,
-                'cuenta_id' => $cuentaIdForCfdi,
-                'emisor_credential_id' => $emisorCredential->id,
-
-                'emisor_rfc' => $emisorCredential->rfc,
-                'emisor_razon_social' => $emisorCredential->razon_social,
-
-                'rfc_emisor' => $emisorCredential->rfc,
-                'razon_emisor' => $emisorCredential->razon_social,
-                'receptor_id' => $data['receptor_id'],
-                'uuid' => $uuidTemp,
-                'serie' => $data['serie'] ?? null,
-                'folio' => $data['folio'] ?? null,
-                'fecha' => $data['fecha'] ?? $now,
-                'version_cfdi' => $data['version_cfdi'] ?? '4.0',
-                'tipo_comprobante' => $tipoDocumento,
-                'tipo_documento' => $tipoDocumento,
-                'moneda' => $data['moneda'] ?? 'MXN',
-                'tipo_cambio' => $data['tipo_cambio'] ?? null,
-                'metodo_pago' => $metodoPago,
-                'forma_pago' => $formaPago,
-                'condiciones_pago' => $data['condiciones_pago'] ?? null,
-                'uso_cfdi' => $data['uso_cfdi'] ?? 'G03',
-                'regimen_receptor' => $data['regimen_receptor'] ?? null,
-                'cp_receptor' => $data['cp_receptor'] ?? null,
-                'tipo_relacion' => $data['tipo_relacion'] ?? null,
-                'uuid_relacionado' => $data['uuid_relacionado'] ?? null,
-                'subtotal' => $subtotal,
-                'descuento' => $descuento,
-                'iva' => $iva,
-                'total' => $total,
-                'saldo_original' => $total,
-                'saldo_pagado' => 0,
-                'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
-                'estatus' => 'borrador',
-                'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
-                'ia_fiscal_score' => $assistant['score'],
-                'ia_fiscal_nivel' => $assistant['nivel'],
-                'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
-                'observaciones' => $data['observaciones'] ?? null,
-                'adenda_tipo' => $adendaTipo,
-                'adenda_json' => $adendaActiva ? json_encode([
-                    'tipo' => $adendaTipo,
-                    'datos' => $adendaData,
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
-                'adenda_xml' => $adendaXml,
+            $conceptoPayload = [
+                'cfdi_id' => $cfdiId,
+                'producto_id' => $c['producto_id'] ?? null,
+                'descripcion' => $c['descripcion'] ?? 'Concepto',
+                'cantidad' => $cant,
+                'precio_unitario' => $ppu,
+                'descuento' => round($lineDesc, 2),
+                'iva_tasa' => $tasa,
+                'subtotal' => round($lineSubtotal, 2),
+                'iva' => round($lineIva, 2),
+                'total' => round($lineTotal, 2),
+                'clave_producto_sat' => $c['clave_producto_sat'] ?? null,
+                'clave_unidad_sat' => $c['clave_unidad_sat'] ?? null,
+                'objeto_impuesto' => $c['objeto_impuesto'] ?? '02',
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
 
-            $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+            $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
 
-            $cfdiId = DB::connection($conn)->table($cfdiTable)->insertGetId($cfdiPayload);
+            DB::connection($conn)->table($conceptoTable)->insert($conceptoPayload);
+        }
+    });
 
-            foreach ($data['conceptos'] as $c) {
-                $cant = (float) $c['cantidad'];
-                $ppu = (float) $c['precio_unitario'];
-                $desc = (float) ($c['descuento'] ?? 0);
-                $tasa = isset($c['iva_tasa']) ? (float) $c['iva_tasa'] : 0.16;
+    if ($accionCfdi === 'timbrar') {
+        if (!$cfdiId) {
+            return redirect()
+                ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
+                ->withErrors([
+                    'timbrado' => 'El CFDI se guardó, pero no se pudo resolver el ID para timbrarlo.',
+                ]);
+        }
 
-                $lineSubtotal = round($cant * $ppu, 4);
-                $lineDesc = min($lineSubtotal, round($desc, 4));
-                $base = max(0, $lineSubtotal - $lineDesc);
-                $lineIva = round($base * $tasa, 4);
-                $lineTotal = round($base + $lineIva, 4);
-
-                $conceptoPayload = [
-                    'cfdi_id' => $cfdiId,
-                    'producto_id' => $c['producto_id'] ?? null,
-                    'descripcion' => $c['descripcion'],
-                    'cantidad' => $cant,
-                    'precio_unitario' => $ppu,
-                    'descuento' => round($lineDesc, 2),
-                    'iva_tasa' => $tasa,
-                    'subtotal' => round($lineSubtotal, 2),
-                    'iva' => round($lineIva, 2),
-                    'total' => round($lineTotal, 2),
-                    'clave_producto_sat' => $c['clave_producto_sat'] ?? null,
-                    'clave_unidad_sat' => $c['clave_unidad_sat'] ?? null,
-                    'objeto_impuesto' => $c['objeto_impuesto'] ?? '02',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
-
-                DB::connection($conn)->table($conceptoTable)->insert($conceptoPayload);
-            }
-        });
-
-        return redirect()
-            ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
-            ->with('ok', 'Borrador CFDI 4.0 creado correctamente con revisión fiscal inteligente.');
+        return $this->timbrar((int) $cfdiId, $facturotopia);
     }
+
+    return redirect()
+        ->route('cliente.facturacion.index', ['month' => now()->format('Y-m')])
+        ->with('ok', 'Borrador CFDI 4.0 guardado correctamente.');
+}
 
 protected function findOwnedCfdi(int $cfdiId)
 {
@@ -1279,7 +1491,13 @@ public function descargarXml(int $cfdi)
         ]);
     }
 
-    $xml = $this->buildCfdiXmlFallback($item);
+    $xml = trim((string) ($item->xml_timbrado ?? ''));
+
+    if ($xml === '') {
+        return back()->withErrors([
+            'xml' => 'Este CFDI está timbrado, pero no tiene XML timbrado guardado.',
+        ]);
+    }
 
     $filename = 'CFDI_' . ($item->serie ?: 'S') . '_' . ($item->folio ?: $item->id) . '.xml';
 
@@ -1562,6 +1780,10 @@ public function descargarZip(int $cfdi)
             ]);
         }
 
+        // ✅ INYECTAR ADENDA AQUÍ
+        $xmlTimbrado = $this->injectAdendaIntoXml($xmlTimbrado, $item->adenda_xml ?? null);
+        $xmlBase64 = base64_encode($xmlTimbrado);
+
         $timbre = $this->extractCfdiTimbreData($xmlTimbrado);
 
         $pdfBase64 = $this->extractBase64FromPacResponse($data, $result['body'] ?? '', [
@@ -1615,7 +1837,47 @@ public function descargarZip(int $cfdi)
             ]));
         });
 
-        return redirect()
+        // ✅ ENVÍO DE CORREO AUTOMÁTICO CON CFDI YA ACTUALIZADO
+        try {
+            $itemFresh = $this->findOwnedCfdi((int) $item->id);
+            $receptor = $itemFresh->receptor;
+
+            if (!empty($receptor->email)) {
+                \Mail::raw('Adjunto su CFDI timbrado.', function ($mail) use ($receptor, $itemFresh) {
+                    $serieFolio = trim((string) ($itemFresh->serie ?? '') . '-' . (string) ($itemFresh->folio ?? ''), '-');
+
+                    $mail->to($receptor->email)
+                        ->subject('CFDI ' . ($serieFolio !== '' ? $serieFolio : (string) $itemFresh->uuid));
+
+                    if (!empty($itemFresh->xml_timbrado)) {
+                        $mail->attachData($itemFresh->xml_timbrado, 'cfdi.xml', [
+                            'mime' => 'application/xml',
+                        ]);
+                    }
+
+                    if (!empty($itemFresh->pdf_base64)) {
+                        $pdf = base64_decode((string) $itemFresh->pdf_base64, true);
+
+                        if (is_string($pdf) && $pdf !== '') {
+                            $mail->attachData($pdf, 'cfdi.pdf', [
+                                'mime' => 'application/pdf',
+                            ]);
+                        }
+                    }
+                });
+            }
+        } catch (\Throwable $e) {
+                report($e);
+            }
+
+            // ✅ DESCONTAR TIMBRE SOLO DESPUÉS DE TIMBRADO EXITOSO
+            try {
+                $this->consumeFacturotopiaStamp((int) $adminAccountId);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            return redirect()
             ->route('cliente.facturacion.show', $item->id)
             ->with('ok', 'CFDI timbrado correctamente por pactopia.com.');
     } catch (\Throwable $e) {
@@ -1629,7 +1891,17 @@ public function descargarZip(int $cfdi)
 
 protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
 {
+    $tipo = strtoupper((string) ($cfdi->tipo_comprobante ?: $cfdi->tipo_documento ?: 'I'));
+    $tipo = in_array($tipo, ['I', 'E', 'T', 'P', 'N'], true) ? $tipo : 'I';
+
     $receptor = $cfdi->receptor;
+    $nominaReceptor = [];
+
+    if ($tipo === 'N' && !empty($cfdi->receptor_nomina_json)) {
+        $decodedNomina = json_decode((string) $cfdi->receptor_nomina_json, true);
+        $nominaReceptor = is_array($decodedNomina) ? $decodedNomina : [];
+    }
+
     $conceptos = $cfdi->conceptos ?? collect();
 
     $emisorId = $this->resolveFacturotopiaEmisorId($cfdi);
@@ -1638,39 +1910,78 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         throw new \RuntimeException('El RFC emisor no tiene emisor_id de Facturotopia. Sincroniza el RFC desde RFC / Emisores antes de timbrar.');
     }
 
-    $cp = trim((string) ($cfdi->cp_receptor ?: ($receptor->codigo_postal ?? '')));
-    $cp = preg_replace('/\D+/', '', $cp);
+    if ($tipo === 'N') {
+        $rfcReceptor = strtoupper((string) data_get($nominaReceptor, 'rfc', ''));
+        $nombreReceptor = strtoupper((string) data_get($nominaReceptor, 'nombre_completo', ''));
+        $cp = preg_replace('/\D+/', '', (string) ($cfdi->cp_receptor ?: data_get($nominaReceptor, 'codigo_postal', '')));
+        $regimen = trim((string) ($cfdi->regimen_receptor ?: data_get($nominaReceptor, 'regimen_fiscal', '605')));
+        $usoCfdi = 'CN01';
+    } else {
+        $rfcReceptor = strtoupper((string) ($receptor->rfc ?? $cfdi->rfc_receptor ?? 'XAXX010101000'));
+        $nombreReceptor = strtoupper((string) ($receptor->razon_social ?? $receptor->nombre_comercial ?? $cfdi->razon_receptor ?? 'PUBLICO GENERAL'));
+        $cp = preg_replace('/\D+/', '', (string) ($cfdi->cp_receptor ?: ($receptor->codigo_postal ?? '')));
+        $regimen = trim((string) ($cfdi->regimen_receptor ?: ($receptor->regimen_fiscal ?? '')));
+        $usoCfdi = strtoupper(trim((string) ($cfdi->uso_cfdi ?: ($receptor->uso_cfdi ?? 'G03'))));
+    }
 
-    $regimen = trim((string) ($cfdi->regimen_receptor ?: ($receptor->regimen_fiscal ?? '')));
-    $usoCfdi = strtoupper(trim((string) ($cfdi->uso_cfdi ?: ($receptor->uso_cfdi ?? 'G03'))));
+    if ($rfcReceptor === '') {
+        throw new \RuntimeException('El receptor no tiene RFC válido para timbrar.');
+    }
 
-    if ($cp === '' || ! preg_match('/^\d{5}$/', $cp)) {
-        throw new \RuntimeException('El receptor no tiene código postal fiscal válido. Edita el receptor y captura su CP fiscal antes de timbrar.');
+    if ($nombreReceptor === '') {
+        throw new \RuntimeException('El receptor no tiene nombre o razón social para timbrar.');
+    }
+
+    if ($cp === '' || !preg_match('/^\d{5}$/', $cp)) {
+        throw new \RuntimeException('El receptor no tiene código postal fiscal válido.');
     }
 
     if ($regimen === '') {
-        throw new \RuntimeException('El receptor no tiene régimen fiscal asignado. Edita el receptor y captura su régimen fiscal antes de timbrar.');
+        throw new \RuntimeException('El receptor no tiene régimen fiscal asignado.');
+    }
+
+    $formaPago = (string) ($cfdi->forma_pago ?: '03');
+    $metodoPago = (string) ($cfdi->metodo_pago ?: 'PUE');
+    $subtotal = (float) ($cfdi->subtotal ?? 0);
+    $descuento = (float) ($cfdi->descuento ?? 0);
+    $total = (float) ($cfdi->total ?? 0);
+    $ivaTotal = (float) ($cfdi->iva ?? 0);
+
+    if ($tipo === 'P') {
+        $formaPago = '99';
+        $metodoPago = 'PPD';
+        $usoCfdi = 'CP01';
+        $subtotal = 0.0;
+        $descuento = 0.0;
+        $total = 0.0;
+        $ivaTotal = 0.0;
+    }
+
+    if ($tipo === 'N') {
+        $formaPago = '99';
+        $metodoPago = 'PUE';
+        $usoCfdi = 'CN01';
+        $ivaTotal = 0.0;
     }
 
     $payload = [
         'Idx' => (string) Str::uuid(),
         'Version' => '4.0',
         'Fecha' => optional($cfdi->fecha)->format('Y-m-d H:i:s') ?: now()->format('Y-m-d H:i:s'),
-        'FormaPago' => (string) ($cfdi->forma_pago ?: '03'),
-        'MetodoPago' => (string) ($cfdi->metodo_pago ?: 'PUE'),
-        'SubTotal' => number_format((float) ($cfdi->subtotal ?? 0), 2, '.', ''),
-        'Descuento' => number_format((float) ($cfdi->descuento ?? 0), 2, '.', ''),
+        'FormaPago' => $formaPago,
+        'MetodoPago' => $metodoPago,
+        'SubTotal' => number_format($subtotal, 2, '.', ''),
+        'Descuento' => number_format($descuento, 2, '.', ''),
         'Moneda' => (string) ($cfdi->moneda ?: 'MXN'),
-        'Total' => number_format((float) ($cfdi->total ?? 0), 2, '.', ''),
-        'CondicionesDePago' => (string) ($cfdi->condiciones_pago ?: 'Pago en una sola exhibición'),
-        'TipoDeComprobante' => (string) ($cfdi->tipo_comprobante ?: 'I'),
+        'Total' => number_format($total, 2, '.', ''),
+        'TipoDeComprobante' => $tipo,
         'Exportacion' => '01',
         'Emisor' => [
             'Id' => $emisorId,
         ],
         'Receptor' => [
-            'Rfc' => strtoupper((string) ($receptor->rfc ?? $cfdi->rfc_receptor ?? 'XAXX010101000')),
-            'Nombre' => strtoupper((string) ($receptor->razon_social ?? $receptor->nombre_comercial ?? $cfdi->razon_receptor ?? 'PUBLICO GENERAL')),
+            'Rfc' => $rfcReceptor,
+            'Nombre' => $nombreReceptor,
             'UsoCFDI' => $usoCfdi !== '' ? $usoCfdi : 'G03',
             'CP' => $cp,
             'Regimen' => $regimen,
@@ -1679,13 +1990,94 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
             'Concepto' => [],
         ],
     ];
-    
-    if (! empty($cfdi->serie)) {
+
+    if ($tipo !== 'N' && $tipo !== 'P') {
+        $payload['CondicionesDePago'] = (string) ($cfdi->condiciones_pago ?: 'Pago en una sola exhibición');
+    }
+
+    if (!empty($cfdi->serie)) {
         $payload['Serie'] = (string) $cfdi->serie;
     }
 
-    if (! empty($cfdi->folio)) {
+    if (!empty($cfdi->folio)) {
         $payload['Folio'] = (string) $cfdi->folio;
+    }
+
+    if ($tipo !== 'N' && !empty($cfdi->tipo_relacion) && !empty($cfdi->uuid_relacionado)) {
+        $payload['CfdiRelacionados'] = [
+            'TipoRelacion' => (string) $cfdi->tipo_relacion,
+            'CfdiRelacionado' => [
+                ['UUID' => strtoupper((string) $cfdi->uuid_relacionado)],
+            ],
+        ];
+    }
+
+    if ($tipo === 'P') {
+        $payload['Conceptos']['Concepto'][] = [
+            'ClaveProdServ' => '84111506',
+            'Descripcion' => 'Pago',
+            'Cantidad' => '1',
+            'ClaveUnidad' => 'ACT',
+            'Unidad' => 'Actividad',
+            'ValorUnitario' => '0',
+            'Importe' => '0',
+            'ObjetoImp' => '01',
+        ];
+
+        $payload['Complemento'] = [
+            'Pagos20' => [
+                'Version' => '2.0',
+                'Totales' => [
+                    'MontoTotalPagos' => number_format((float) ($cfdi->saldo_pagado ?? 0), 2, '.', ''),
+                ],
+                'Pago' => [],
+            ],
+        ];
+
+        return $payload;
+    }
+
+    if ($tipo === 'N') {
+        $payload['Conceptos']['Concepto'][] = [
+            'ClaveProdServ' => '84111505',
+            'Descripcion' => 'Pago de nómina',
+            'Cantidad' => '1',
+            'ClaveUnidad' => 'ACT',
+            'Unidad' => 'Actividad',
+            'ValorUnitario' => number_format($subtotal, 2, '.', ''),
+            'Importe' => number_format($subtotal, 2, '.', ''),
+            'Descuento' => number_format($descuento, 2, '.', ''),
+            'ObjetoImp' => '01',
+        ];
+
+        $fechaPago = optional($cfdi->fecha)->toDateString() ?: now()->toDateString();
+
+        $payload['Complemento'] = [
+            'Nomina12' => [
+                'Version' => '1.2',
+                'TipoNomina' => 'O',
+                'FechaPago' => $fechaPago,
+                'FechaInicialPago' => now()->startOfMonth()->toDateString(),
+                'FechaFinalPago' => now()->endOfMonth()->toDateString(),
+                'NumDiasPagados' => '15.000',
+                'Receptor' => [
+                    'Curp' => (string) data_get($nominaReceptor, 'curp', ''),
+                    'NumSeguridadSocial' => (string) data_get($nominaReceptor, 'nss', ''),
+                    'FechaInicioRelLaboral' => (string) data_get($nominaReceptor, 'fecha_inicio_relacion_laboral', ''),
+                    'TipoContrato' => (string) data_get($nominaReceptor, 'tipo_contrato', ''),
+                    'TipoJornada' => (string) data_get($nominaReceptor, 'tipo_jornada', ''),
+                    'TipoRegimen' => (string) data_get($nominaReceptor, 'tipo_regimen', ''),
+                    'NumEmpleado' => (string) data_get($nominaReceptor, 'numero_empleado', ''),
+                    'Departamento' => (string) data_get($nominaReceptor, 'departamento', ''),
+                    'Puesto' => (string) data_get($nominaReceptor, 'puesto', ''),
+                    'PeriodicidadPago' => (string) data_get($nominaReceptor, 'periodicidad_pago', ''),
+                    'SalarioBaseCotApor' => number_format((float) data_get($nominaReceptor, 'salario_base_cot_apor', 0), 2, '.', ''),
+                    'SalarioDiarioIntegrado' => number_format((float) data_get($nominaReceptor, 'salario_diario_integrado', 0), 2, '.', ''),
+                ],
+            ],
+        ];
+
+        return $payload;
     }
 
     foreach ($conceptos as $concepto) {
@@ -1693,6 +2085,7 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         $precio = (float) ($concepto->precio_unitario ?? 0);
         $importe = (float) ($concepto->subtotal ?? ($cantidad * $precio));
         $iva = (float) ($concepto->iva ?? 0);
+        $objetoImp = (string) ($concepto->objeto_impuesto ?? ($iva > 0 ? '02' : '01'));
 
         $item = [
             'ClaveProdServ' => (string) ($concepto->clave_producto_sat ?? '01010101'),
@@ -1702,10 +2095,14 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
             'Unidad' => (string) ($concepto->unidad ?? 'Actividad'),
             'ValorUnitario' => number_format($precio, 2, '.', ''),
             'Importe' => number_format($importe, 2, '.', ''),
-            'ObjetoImp' => $iva > 0 ? '02' : '01',
+            'ObjetoImp' => $objetoImp,
         ];
 
-        if ($iva > 0) {
+        if ((float) ($concepto->descuento ?? 0) > 0) {
+            $item['Descuento'] = number_format((float) $concepto->descuento, 2, '.', '');
+        }
+
+        if ($iva > 0 && $objetoImp === '02') {
             $item['Impuestos'] = [
                 'Traslados' => [
                     'Traslado' => [[
@@ -1722,14 +2119,12 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         $payload['Conceptos']['Concepto'][] = $item;
     }
 
-    $ivaTotal = (float) ($cfdi->iva ?? 0);
-
     if ($ivaTotal > 0) {
         $payload['Impuestos'] = [
             'TotalImpuestosTrasladados' => number_format($ivaTotal, 2, '.', ''),
             'Traslados' => [
                 'Traslado' => [[
-                    'Base' => number_format((float) ($cfdi->subtotal ?? 0), 2, '.', ''),
+                    'Base' => number_format(max(0, $subtotal - $descuento), 2, '.', ''),
                     'Impuesto' => '002',
                     'TipoFactor' => 'Tasa',
                     'TasaOCuota' => '0.160000',
@@ -2037,57 +2432,118 @@ protected function extractCfdiTimbreData(string $xml): array
 }
 
     public function actualizar(Request $request, int $cfdi)
-    {
-        $item = $this->findOwnedCfdi($cfdi);
+{
+    $item = $this->findOwnedCfdi($cfdi);
 
-        if (strtolower((string) $item->estatus) !== 'borrador') {
-            return back()->withErrors([
-                'cfdi' => 'Solo se pueden actualizar CFDI en borrador.',
-            ]);
-        }
-
-        $data = $request->validate([
-            'cliente_id' => ['required', 'string', 'max:80'],
-            'receptor_id' => ['required', 'integer'],
-            'serie' => ['nullable', 'string', 'max:10'],
-            'folio' => ['nullable', 'string', 'max:20'],
-            'fecha' => ['nullable', 'date'],
-            'moneda' => ['nullable', 'string', 'max:10'],
-            'metodo_pago' => ['nullable', 'string', 'max:10'],
-            'forma_pago' => ['nullable', 'string', 'max:10'],
-            'conceptos' => ['required', 'array', 'min:1'],
-            'conceptos.*.producto_id' => ['nullable'],
-            'conceptos.*.descripcion' => ['required', 'string', 'max:500'],
-            'conceptos.*.cantidad' => ['required', 'numeric', 'min:0.0001'],
-            'conceptos.*.precio_unitario' => ['required', 'numeric', 'min:0'],
-            'conceptos.*.iva_tasa' => ['nullable', 'numeric', 'min:0'],
+    if (strtolower((string) $item->estatus) !== 'borrador') {
+        return back()->withErrors([
+            'cfdi' => 'Solo se pueden actualizar CFDI en borrador.',
         ]);
+    }
 
-        $cuenta = $this->currentCuenta();
+    $tipoDocumento = strtoupper((string) ($item->tipo_documento ?? $item->tipo_comprobante ?? $request->input('tipo_documento', 'I')));
+    $tipoDocumento = in_array($tipoDocumento, ['I', 'E', 'T', 'P', 'N'], true) ? $tipoDocumento : 'I';
 
-        if (!$cuenta) {
-            return back()->withInput()->withErrors([
-                'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
-            ]);
-        }
+    $data = $request->validate([
+        'accion_cfdi' => 'nullable|string|in:borrador,timbrar',
+        'cliente_id' => ['required', 'string', 'max:80'],
+        'receptor_id' => ['nullable', 'integer'],
+        'empleado_nomina_id' => ['nullable', 'integer'],
+        'serie' => ['nullable', 'string', 'max:10'],
+        'folio' => ['nullable', 'string', 'max:20'],
+        'fecha' => ['nullable', 'date'],
+        'moneda' => ['nullable', 'string', 'max:10'],
+        'metodo_pago' => ['nullable', 'string', 'max:10'],
+        'forma_pago' => ['nullable', 'string', 'max:10'],
+        'uso_cfdi' => ['nullable', 'string', 'max:10'],
+        'regimen_receptor' => ['nullable', 'string', 'max:10'],
+        'cp_receptor' => ['nullable', 'string', 'max:10'],
+        'conceptos' => ['nullable', 'array'],
+        'conceptos.*.producto_id' => ['nullable'],
+        'conceptos.*.descripcion' => ['nullable', 'string', 'max:500'],
+        'conceptos.*.cantidad' => ['nullable', 'numeric', 'min:0.0001'],
+        'conceptos.*.precio_unitario' => ['nullable', 'numeric', 'min:0'],
+        'conceptos.*.iva_tasa' => ['nullable', 'numeric', 'min:0'],
+        'conceptos.*.descuento' => ['nullable', 'numeric', 'min:0'],
+        'conceptos.*.clave_producto_sat' => ['nullable', 'string', 'max:20'],
+        'conceptos.*.clave_unidad_sat' => ['nullable', 'string', 'max:20'],
+        'conceptos.*.objeto_impuesto' => ['nullable', 'string', 'max:10'],
+        'nomina_total_percepciones' => ['nullable', 'numeric', 'min:0'],
+        'nomina_total_deducciones' => ['nullable', 'numeric', 'min:0'],
+    ]);
 
-        $emisorCredential = SatCredential::query()
-            ->where(function ($q) use ($cuenta) {
-                $q->where('cuenta_id', (string) $cuenta->id)
-                    ->orWhere('account_id', (string) $cuenta->id);
-            })
-            ->where('id', $data['cliente_id'])
+    $cuenta = $this->currentCuenta();
+
+    if (!$cuenta) {
+        return back()->withInput()->withErrors([
+            'cuenta' => 'No se pudo identificar la cuenta activa del cliente.',
+        ]);
+    }
+
+    $emisorCredential = SatCredential::query()
+        ->where(function ($q) use ($cuenta) {
+            $q->where('cuenta_id', (string) $cuenta->id)
+                ->orWhere('account_id', (string) $cuenta->id);
+        })
+        ->where('id', $data['cliente_id'])
+        ->first();
+
+    if (!$emisorCredential) {
+        return back()->withInput()->withErrors([
+            'cliente_id' => 'El RFC emisor seleccionado no pertenece a esta cuenta.',
+        ]);
+    }
+
+    $receptor = null;
+    $empleadoNomina = null;
+
+    $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
+    $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
+
+    if ($tipoDocumento === 'N') {
+        $empleadoNomina = EmpleadoNomina::query()
+            ->where('cuenta_id', (string) $cuenta->id)
+            ->where('activo', true)
+            ->where('id', (int) ($data['empleado_nomina_id'] ?? $item->empleado_nomina_id ?? 0))
             ->first();
 
-        if (!$emisorCredential) {
+        if (!$empleadoNomina) {
             return back()->withInput()->withErrors([
-                'cliente_id' => 'El RFC emisor seleccionado no pertenece a esta cuenta.',
+                'empleado_nomina_id' => 'Selecciona un empleado activo para actualizar CFDI de nómina.',
             ]);
         }
 
+        $percepciones = round((float) ($data['nomina_total_percepciones'] ?? $item->subtotal ?? 0), 2);
+        $deducciones = round((float) ($data['nomina_total_deducciones'] ?? $item->descuento ?? 0), 2);
+
+        if ($percepciones <= 0) {
+            return back()->withInput()->withErrors([
+                'nomina_total_percepciones' => 'Captura el total de percepciones de la nómina.',
+            ]);
+        }
+
+        $metodoPago = 'PUE';
+        $formaPago = '99';
+
+        $data['uso_cfdi'] = 'CN01';
+        $data['regimen_receptor'] = $empleadoNomina->regimen_fiscal ?: '605';
+        $data['cp_receptor'] = $empleadoNomina->codigo_postal;
+
+        $data['conceptos'] = [[
+            'producto_id' => null,
+            'descripcion' => 'Pago de nómina',
+            'cantidad' => 1,
+            'precio_unitario' => $percepciones,
+            'iva_tasa' => 0,
+            'descuento' => $deducciones,
+            'clave_producto_sat' => '84111505',
+            'clave_unidad_sat' => 'ACT',
+            'objeto_impuesto' => '01',
+        ]];
+    } else {
         $receptor = Receptor::query()
             ->where('cuenta_id', $cuenta->id)
-            ->where('id', $data['receptor_id'])
+            ->where('id', (int) ($data['receptor_id'] ?? 0))
             ->first();
 
         if (!$receptor) {
@@ -2096,145 +2552,197 @@ protected function extractCfdiTimbreData(string $xml): array
             ]);
         }
 
-        $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
-        $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
+        if (empty($data['conceptos']) || !is_array($data['conceptos'])) {
+            return back()->withInput()->withErrors([
+                'conceptos' => 'Agrega al menos un concepto para este CFDI.',
+            ]);
+        }
 
         if ($metodoPago === 'PPD') {
             $formaPago = '99';
         }
+    }
 
-        $subtotal = 0.0;
-        $iva = 0.0;
-        $total = 0.0;
+    $subtotal = 0.0;
+    $descuento = 0.0;
+    $iva = 0.0;
+    $total = 0.0;
 
-        foreach ($data['conceptos'] as $concepto) {
-            $cantidad = (float) $concepto['cantidad'];
-            $precio = (float) $concepto['precio_unitario'];
+    foreach (($data['conceptos'] ?? []) as $concepto) {
+        $cantidad = (float) ($concepto['cantidad'] ?? 0);
+        $precio = (float) ($concepto['precio_unitario'] ?? 0);
+        $desc = (float) ($concepto['descuento'] ?? 0);
+        $tasa = isset($concepto['iva_tasa']) ? (float) $concepto['iva_tasa'] : 0.16;
+
+        $lineSubtotal = round($cantidad * $precio, 4);
+        $lineDesc = min($lineSubtotal, round($desc, 4));
+        $base = max(0, $lineSubtotal - $lineDesc);
+        $lineIva = round($base * $tasa, 4);
+        $lineTotal = round($base + $lineIva, 4);
+
+        $subtotal += $lineSubtotal;
+        $descuento += $lineDesc;
+        $iva += $lineIva;
+        $total += $lineTotal;
+    }
+
+    $subtotal = round($subtotal, 2);
+    $descuento = round($descuento, 2);
+    $iva = round($iva, 2);
+    $total = round($total, 2);
+
+    $assistant = $this->fiscalAssistant([
+        'rfc' => $tipoDocumento === 'N' ? $empleadoNomina?->rfc : $receptor?->rfc,
+        'regimen_receptor' => $tipoDocumento === 'N'
+            ? ($empleadoNomina?->regimen_fiscal ?: '605')
+            : ($data['regimen_receptor'] ?? $receptor?->regimen_fiscal),
+        'cp_receptor' => $tipoDocumento === 'N'
+            ? $empleadoNomina?->codigo_postal
+            : ($data['cp_receptor'] ?? $receptor?->codigo_postal),
+        'uso_cfdi' => $tipoDocumento === 'N'
+            ? 'CN01'
+            : ($data['uso_cfdi'] ?? $receptor?->uso_cfdi),
+        'metodo_pago' => $metodoPago,
+        'forma_pago' => $formaPago,
+        'tipo_documento' => $tipoDocumento,
+        'total' => $total,
+    ]);
+
+    if (!$assistant['ok']) {
+        return back()->withInput()->withErrors([
+            'asistente_fiscal' => implode(' ', $assistant['errors']),
+        ]);
+    }
+
+    $conn = $this->cfdiConn();
+    $cfdiTable = (new Cfdi)->getTable();
+    $conceptoTable = (new CfdiConcepto)->getTable();
+
+    DB::connection($conn)->transaction(function () use (
+        $conn,
+        $cfdiTable,
+        $conceptoTable,
+        $item,
+        $data,
+        $subtotal,
+        $descuento,
+        $iva,
+        $total,
+        $metodoPago,
+        $formaPago,
+        $tipoDocumento,
+        $assistant,
+        $emisorCredential,
+        $empleadoNomina
+    ) {
+        $now = now();
+
+        $cfdiPayload = [
+            'cliente_id' => is_numeric($item->cliente_id) ? (int) $item->cliente_id : 0,
+            'emisor_credential_id' => $emisorCredential->id,
+            'emisor_rfc' => $emisorCredential->rfc,
+            'emisor_razon_social' => $emisorCredential->razon_social,
+            'rfc_emisor' => $emisorCredential->rfc,
+            'razon_emisor' => $emisorCredential->razon_social,
+
+            'receptor_id' => $tipoDocumento === 'N' ? null : ($data['receptor_id'] ?? null),
+            'empleado_nomina_id' => $tipoDocumento === 'N' ? $empleadoNomina?->id : null,
+            'receptor_nomina_json' => $tipoDocumento === 'N' ? json_encode([
+                'id' => $empleadoNomina?->id,
+                'numero_empleado' => $empleadoNomina?->numero_empleado,
+                'rfc' => $empleadoNomina?->rfc,
+                'curp' => $empleadoNomina?->curp,
+                'nss' => $empleadoNomina?->nss,
+                'nombre_completo' => $empleadoNomina?->nombre_completo,
+                'codigo_postal' => $empleadoNomina?->codigo_postal,
+                'regimen_fiscal' => $empleadoNomina?->regimen_fiscal ?: '605',
+                'uso_cfdi' => 'CN01',
+                'departamento' => $empleadoNomina?->departamento,
+                'puesto' => $empleadoNomina?->puesto,
+                'tipo_contrato' => $empleadoNomina?->tipo_contrato,
+                'tipo_jornada' => $empleadoNomina?->tipo_jornada,
+                'tipo_regimen' => $empleadoNomina?->tipo_regimen,
+                'periodicidad_pago' => $empleadoNomina?->periodicidad_pago,
+                'fecha_inicio_relacion_laboral' => optional($empleadoNomina?->fecha_inicio_relacion_laboral)->toDateString(),
+                'salario_base_cot_apor' => $empleadoNomina?->salario_base_cot_apor,
+                'salario_diario_integrado' => $empleadoNomina?->salario_diario_integrado,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+
+            'serie' => $data['serie'] ?? null,
+            'folio' => $data['folio'] ?? null,
+            'fecha' => $data['fecha'] ?? $now,
+            'moneda' => $data['moneda'] ?? 'MXN',
+            'metodo_pago' => $metodoPago,
+            'forma_pago' => $formaPago,
+            'uso_cfdi' => $tipoDocumento === 'N' ? 'CN01' : ($data['uso_cfdi'] ?? 'G03'),
+            'regimen_receptor' => $tipoDocumento === 'N' ? ($empleadoNomina?->regimen_fiscal ?: '605') : ($data['regimen_receptor'] ?? null),
+            'cp_receptor' => $tipoDocumento === 'N' ? $empleadoNomina?->codigo_postal : ($data['cp_receptor'] ?? null),
+            'subtotal' => $subtotal,
+            'descuento' => $descuento,
+            'iva' => $iva,
+            'total' => $total,
+            'saldo_original' => $total,
+            'saldo_pagado' => 0,
+            'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
+            'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
+            'ia_fiscal_score' => $assistant['score'],
+            'ia_fiscal_nivel' => $assistant['nivel'],
+            'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
+            'updated_at' => $now,
+        ];
+
+        $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+
+        DB::connection($conn)
+            ->table($cfdiTable)
+            ->where('id', $item->id)
+            ->update($cfdiPayload);
+
+        DB::connection($conn)
+            ->table($conceptoTable)
+            ->where('cfdi_id', $item->id)
+            ->delete();
+
+        foreach (($data['conceptos'] ?? []) as $concepto) {
+            $cantidad = (float) ($concepto['cantidad'] ?? 0);
+            $precio = (float) ($concepto['precio_unitario'] ?? 0);
+            $desc = (float) ($concepto['descuento'] ?? 0);
             $tasa = isset($concepto['iva_tasa']) ? (float) $concepto['iva_tasa'] : 0.16;
 
             $lineSubtotal = round($cantidad * $precio, 4);
-            $lineIva = round($lineSubtotal * $tasa, 4);
-            $lineTotal = round($lineSubtotal + $lineIva, 4);
+            $lineDesc = min($lineSubtotal, round($desc, 4));
+            $base = max(0, $lineSubtotal - $lineDesc);
+            $lineIva = round($base * $tasa, 4);
+            $lineTotal = round($base + $lineIva, 4);
 
-            $subtotal += $lineSubtotal;
-            $iva += $lineIva;
-            $total += $lineTotal;
-        }
-
-        $subtotal = round($subtotal, 2);
-        $iva = round($iva, 2);
-        $total = round($total, 2);
-
-        $assistant = $this->fiscalAssistant([
-            'rfc' => $receptor->rfc,
-            'regimen_receptor' => $receptor->regimen_fiscal,
-            'cp_receptor' => $receptor->codigo_postal,
-            'uso_cfdi' => $receptor->uso_cfdi,
-            'metodo_pago' => $metodoPago,
-            'forma_pago' => $formaPago,
-            'tipo_documento' => $item->tipo_documento ?? $item->tipo_comprobante ?? 'I',
-            'total' => $total,
-        ]);
-
-        if (!$assistant['ok']) {
-            return back()->withInput()->withErrors([
-                'asistente_fiscal' => implode(' ', $assistant['errors']),
-            ]);
-        }
-
-        $conn = $this->cfdiConn();
-        $cfdiTable = (new Cfdi)->getTable();
-        $conceptoTable = (new CfdiConcepto)->getTable();
-
-        DB::connection($conn)->transaction(function () use (
-            $conn,
-            $cfdiTable,
-            $conceptoTable,
-            $item,
-            $data,
-            $subtotal,
-            $iva,
-            $total,
-            $metodoPago,
-            $formaPago,
-            $assistant,
-            $emisorCredential
-        ) {
-            $now = now();
-
-            $cfdiPayload = [
-                'cliente_id' => is_numeric($item->cliente_id) ? (int) $item->cliente_id : 0,
-                'emisor_credential_id' => $emisorCredential->id,
-
-                'emisor_rfc' => $emisorCredential->rfc,
-                'emisor_razon_social' => $emisorCredential->razon_social,
-
-                'rfc_emisor' => $emisorCredential->rfc,
-                'razon_emisor' => $emisorCredential->razon_social,
-                'receptor_id' => $data['receptor_id'],
-                'serie' => $data['serie'] ?? null,
-                'folio' => $data['folio'] ?? null,
-                'fecha' => $data['fecha'] ?? $now,
-                'moneda' => $data['moneda'] ?? 'MXN',
-                'metodo_pago' => $metodoPago,
-                'forma_pago' => $formaPago,
-                'subtotal' => $subtotal,
-                'iva' => $iva,
-                'total' => $total,
-                'saldo_original' => $total,
-                'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
-                'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
-                'ia_fiscal_score' => $assistant['score'],
-                'ia_fiscal_nivel' => $assistant['nivel'],
-                'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
+            $conceptoPayload = [
+                'cfdi_id' => $item->id,
+                'producto_id' => $concepto['producto_id'] ?? null,
+                'descripcion' => $concepto['descripcion'] ?? 'Concepto',
+                'cantidad' => $cantidad,
+                'precio_unitario' => $precio,
+                'descuento' => round($lineDesc, 2),
+                'iva_tasa' => $tasa,
+                'subtotal' => round($lineSubtotal, 2),
+                'iva' => round($lineIva, 2),
+                'total' => round($lineTotal, 2),
+                'clave_producto_sat' => $concepto['clave_producto_sat'] ?? null,
+                'clave_unidad_sat' => $concepto['clave_unidad_sat'] ?? null,
+                'objeto_impuesto' => $concepto['objeto_impuesto'] ?? '02',
+                'created_at' => $now,
                 'updated_at' => $now,
             ];
 
-            $cfdiPayload = $this->onlyExistingColumnsForInsert($cfdiTable, $conn, $cfdiPayload);
+            $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
 
-            DB::connection($conn)
-                ->table($cfdiTable)
-                ->where('id', $item->id)
-                ->update($cfdiPayload);
+            DB::connection($conn)->table($conceptoTable)->insert($conceptoPayload);
+        }
+    });
 
-            DB::connection($conn)
-                ->table($conceptoTable)
-                ->where('cfdi_id', $item->id)
-                ->delete();
-
-            foreach ($data['conceptos'] as $concepto) {
-                $cantidad = (float) $concepto['cantidad'];
-                $precio = (float) $concepto['precio_unitario'];
-                $tasa = isset($concepto['iva_tasa']) ? (float) $concepto['iva_tasa'] : 0.16;
-
-                $lineSubtotal = round($cantidad * $precio, 4);
-                $lineIva = round($lineSubtotal * $tasa, 4);
-                $lineTotal = round($lineSubtotal + $lineIva, 4);
-
-                $conceptoPayload = [
-                    'cfdi_id' => $item->id,
-                    'producto_id' => $concepto['producto_id'] ?? null,
-                    'descripcion' => $concepto['descripcion'],
-                    'cantidad' => $cantidad,
-                    'precio_unitario' => $precio,
-                    'iva_tasa' => $tasa,
-                    'subtotal' => round($lineSubtotal, 2),
-                    'iva' => round($lineIva, 2),
-                    'total' => round($lineTotal, 2),
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-
-                $conceptoPayload = $this->onlyExistingColumnsForInsert($conceptoTable, $conn, $conceptoPayload);
-
-                DB::connection($conn)->table($conceptoTable)->insert($conceptoPayload);
-            }
-        });
-
-        return redirect()
-            ->route('cliente.facturacion.show', $item->id)
-            ->with('ok', 'CFDI actualizado correctamente.');
-    }
+    return redirect()
+        ->route('cliente.facturacion.show', $item->id)
+        ->with('ok', 'CFDI actualizado correctamente.');
+}
 
     protected function validateReceptorPayload(Request $request): array
     {
@@ -2807,4 +3315,109 @@ protected function injectAdendaIntoXml(string $xml, ?string $adendaXml): string
 
     return preg_replace('/<\/cfdi:Comprobante>\s*$/', $adendaXml . "\n</cfdi:Comprobante>", $xml) ?: $xml;
 }
+
+protected function consumeFacturotopiaStamp(int $adminAccountId): void
+{
+    if ($adminAccountId <= 0) {
+        return;
+    }
+
+    $conn = 'mysql_admin';
+    $table = 'accounts';
+
+    if (! Schema::connection($conn)->hasTable($table)) {
+        return;
+    }
+
+    if (! Schema::connection($conn)->hasColumn($table, 'meta')) {
+        return;
+    }
+
+    DB::connection($conn)->transaction(function () use ($conn, $table, $adminAccountId) {
+        $row = DB::connection($conn)
+            ->table($table)
+            ->where('id', $adminAccountId)
+            ->lockForUpdate()
+            ->first(['id', 'meta']);
+
+        if (! $row) {
+            return;
+        }
+
+        $meta = [];
+
+        if (is_string($row->meta ?? null) && trim((string) $row->meta) !== '') {
+            $decoded = json_decode((string) $row->meta, true);
+            $meta = is_array($decoded) ? $decoded : [];
+        }
+
+        $asignados = (int) data_get($meta, 'facturotopia.timbres.asignados', 0);
+        $consumidos = (int) data_get($meta, 'facturotopia.timbres.consumidos', 0);
+
+        if ($asignados > 0 && $consumidos >= $asignados) {
+            throw new \RuntimeException('La cuenta ya no tiene timbres disponibles.');
+        }
+
+        data_set($meta, 'facturotopia.timbres.consumidos', $consumidos + 1);
+        data_set($meta, 'facturotopia.timbres.disponibles', max(0, $asignados - ($consumidos + 1)));
+        data_set($meta, 'facturotopia.timbres.last_consumed_at', now()->toDateTimeString());
+
+        DB::connection($conn)
+            ->table($table)
+            ->where('id', $adminAccountId)
+            ->update([
+                'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'updated_at' => now(),
+            ]);
+    });
+}
+
+protected function resolvePortalIsProFromAdmin(?object $cuenta, array $summary = []): bool
+{
+    $normalize = static function (?string $raw): bool {
+        $p = strtolower(trim((string) $raw));
+        $p = str_replace([' ', '-'], '_', $p);
+        $p = preg_replace('/_+/', '_', $p) ?: '';
+
+        foreach (['_mensual', '_anual', '_monthly', '_yearly', '_annual'] as $suffix) {
+            if (str_ends_with($p, $suffix)) {
+                $p = substr($p, 0, -strlen($suffix));
+                break;
+            }
+        }
+
+        return in_array($p, ['pro', 'premium', 'empresa', 'business', 'enterprise', 'empresarial'], true);
+    };
+
+    try {
+        if ($cuenta && Schema::connection('mysql_admin')->hasTable('accounts')) {
+            $q = DB::connection('mysql_admin')->table('accounts');
+
+            if (! empty($cuenta->admin_account_id)) {
+                $row = (clone $q)->where('id', (int) $cuenta->admin_account_id)->first();
+
+                if ($row) {
+                    return $normalize(($row->plan_actual ?? null) ?: ($row->plan ?? null));
+                }
+            }
+
+            foreach (['rfc', 'rfc_padre'] as $field) {
+                if (! empty($cuenta->{$field}) && Schema::connection('mysql_admin')->hasColumn('accounts', 'rfc')) {
+                    $row = (clone $q)
+                        ->whereRaw('UPPER(rfc) = ?', [strtoupper(trim((string) $cuenta->{$field}))])
+                        ->first();
+
+                    if ($row) {
+                        return $normalize(($row->plan_actual ?? null) ?: ($row->plan ?? null));
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        report($e);
+    }
+
+    return (bool) ($summary['is_pro'] ?? false);
+}
+
 }

@@ -174,14 +174,14 @@ function objectTaxLabel(value) {
             <span>Clave SAT</span>
             <input type="text"
                   class="input-cfdi"
-                  name="conceptos[${idx}][clave_sat]"
+                  name="conceptos[${idx}][clave_producto_sat]"
                   value="${esc(claveSat)}"
                   placeholder="01010101">
           </label>
 
           <label class="concept-field">
             <span>Unidad SAT</span>
-            <select class="select-cfdi" name="conceptos[${idx}][unidad]">
+            <select class="select-cfdi" name="conceptos[${idx}][clave_unidad_sat]">
               <option value="E48" ${item.unidad === 'E48' ? 'selected' : ''}>E48 · Servicio</option>
               <option value="H87" ${item.unidad === 'H87' ? 'selected' : ''}>H87 · Pieza</option>
               <option value="ACT" ${item.unidad === 'ACT' ? 'selected' : ''}>ACT · Actividad</option>
@@ -362,8 +362,8 @@ function onProductChange(idx, pid) {
   const descripcion = row.querySelector(`[name="conceptos[${idx}][descripcion]"]`);
   const precio = row.querySelector(`[name="conceptos[${idx}][precio_unitario]"]`);
   const iva = row.querySelector(`[name="conceptos[${idx}][iva_tasa]"]`);
-  const unidad = row.querySelector(`[name="conceptos[${idx}][unidad]"]`);
-  const claveSat = row.querySelector(`[name="conceptos[${idx}][clave_sat]"]`);
+  const unidad = row.querySelector(`[name="conceptos[${idx}][clave_unidad_sat]"]`);
+  const claveSat = row.querySelector(`[name="conceptos[${idx}][clave_producto_sat]"]`);
   const objeto = row.querySelector(`[name="conceptos[${idx}][objeto_impuesto]"]`);
 
   if (descripcion && product.descripcion) descripcion.value = product.descripcion;
@@ -377,16 +377,23 @@ function onProductChange(idx, pid) {
 }
 
   function updateReceptorCard() {
-    if (!receptorSelect || !receptorCard) {
-      return;
-    }
+  if (!receptorCard) {
+    return;
+  }
 
-    const opt = receptorSelect.options[receptorSelect.selectedIndex];
+  const tipo = getTipoCfdi();
+  const cpInput = document.getElementById('cp_receptor');
+  const regimenInput = document.getElementById('regimen_receptor');
+  const usoInput = document.getElementById('uso_cfdi');
 
-    if (!opt || !receptorSelect.value) {
+  if (tipo === 'N') {
+    const empleadoSelect = document.getElementById('empleado_nomina_id');
+    const opt = empleadoSelect?.options[empleadoSelect.selectedIndex];
+
+    if (!opt || !empleadoSelect.value) {
       receptorCard.innerHTML = `
-        <strong>Ficha fiscal inteligente</strong>
-        <span>Selecciona un receptor para validar RFC, régimen y CP antes de timbrar.</span>
+        <strong>Empleado pendiente</strong>
+        <span>Selecciona un empleado para generar CFDI de nómina. No uses receptores comerciales.</span>
       `;
       return;
     }
@@ -394,24 +401,59 @@ function onProductChange(idx, pid) {
     const rfc = opt.dataset.rfc || '';
     const nombre = opt.dataset.nombre || opt.textContent || '';
     const cp = opt.dataset.cp || '';
-    const regimen = opt.dataset.regimen || '';
+    const regimen = opt.dataset.regimen || '605';
+    const puesto = opt.dataset.puesto || '';
+    const departamento = opt.dataset.departamento || '';
 
-    const cpInput = document.getElementById('cp_receptor');
-    const regimenInput = document.getElementById('regimen_receptor');
+    if (cpInput) cpInput.value = cp;
+    if (regimenInput) regimenInput.value = regimen;
+    if (usoInput) usoInput.value = 'CN01';
 
-    if (cpInput && !cpInput.value && cp) {
-      cpInput.value = cp;
-    }
+    const nominaCpPreview = document.getElementById('nomina_cp_preview');
+    const nominaRegimenPreview = document.getElementById('nomina_regimen_preview');
 
-    if (regimenInput && !regimenInput.value && regimen) {
-      regimenInput.value = regimen;
-    }
+    if (nominaCpPreview) nominaCpPreview.value = cp;
+    if (nominaRegimenPreview) nominaRegimenPreview.value = regimen;
 
     receptorCard.innerHTML = `
       <strong>${esc(nombre)}</strong>
-      <span>RFC: ${esc(rfc || 'pendiente')} · Régimen: ${esc(regimen || 'pendiente')} · CP: ${esc(cp || 'pendiente')}</span>
+      <span>RFC: ${esc(rfc || 'pendiente')} · Régimen: ${esc(regimen || '605')} · CP: ${esc(cp || 'pendiente')} · ${esc(departamento || 'Sin departamento')} ${puesto ? '· ' + esc(puesto) : ''}</span>
     `;
+    return;
   }
+
+  if (!receptorSelect) {
+    return;
+  }
+
+  const opt = receptorSelect.options[receptorSelect.selectedIndex];
+
+  if (!opt || !receptorSelect.value) {
+    receptorCard.innerHTML = `
+      <strong>Ficha fiscal inteligente</strong>
+      <span>Selecciona un receptor para validar RFC, régimen y CP antes de timbrar.</span>
+    `;
+    return;
+  }
+
+  const rfc = opt.dataset.rfc || '';
+  const nombre = opt.dataset.nombre || opt.textContent || '';
+  const cp = opt.dataset.cp || '';
+  const regimen = opt.dataset.regimen || '';
+
+  if (cpInput && !cpInput.value && cp) {
+    cpInput.value = cp;
+  }
+
+  if (regimenInput && !regimenInput.value && regimen) {
+    regimenInput.value = regimen;
+  }
+
+  receptorCard.innerHTML = `
+    <strong>${esc(nombre)}</strong>
+    <span>RFC: ${esc(rfc || 'pendiente')} · Régimen: ${esc(regimen || 'pendiente')} · CP: ${esc(cp || 'pendiente')}</span>
+  `;
+}
 
   function setReview(key, ok, text) {
     const el = document.querySelector(`[data-review="${key}"]`);
@@ -679,6 +721,11 @@ function onProductChange(idx, pid) {
     updateReceptorCard();
     updateAI();
   });
+
+  document.getElementById('empleado_nomina_id')?.addEventListener('change', function () {
+  updateReceptorCard();
+  updateAI();
+});
 
   document.getElementById('btnPreview')?.addEventListener('click', function () {
     updateAI();
@@ -954,6 +1001,273 @@ productList?.addEventListener('click', function (event) {
   if (editBtn) editProduct(editBtn.dataset.productEdit);
   if (delBtn) deleteProduct(delBtn.dataset.productDelete);
 });
+
+/* =========================================================
+   P360 · Flujo limpio por tipo de comprobante
+========================================================= */
+
+const tipoDocumentoInput =
+  document.getElementById('tipo_documento') ||
+  document.getElementById('tipo_comprobante');
+
+const metodoPagoInput = document.getElementById('metodo_pago');
+const formaPagoInput = document.getElementById('forma_pago');
+const usoCfdiInput = document.getElementById('uso_cfdi');
+
+function getTipoCfdi() {
+  return String(tipoDocumentoInput?.value || 'I').toUpperCase();
+}
+
+function setSectionVisible(id, visible) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  el.hidden = !visible;
+  el.classList.toggle('is-hidden', !visible);
+}
+
+function syncTipoComprobanteUi() {
+  const tipo = getTipoCfdi();
+
+  const isIngreso = tipo === 'I';
+  const isPago = tipo === 'P';
+  const isNomina = tipo === 'N';
+  const isTraslado = tipo === 'T';
+  const isEgreso = tipo === 'E';
+
+  document.body.dataset.cfdiTipo = tipo;
+
+  const receptorClientePanel = document.getElementById('receptorClientePanel');
+  const receptorNominaPanel = document.getElementById('receptorNominaPanel');
+  const empleadoNominaSelect = document.getElementById('empleado_nomina_id');
+  const receptorModeTitle = document.getElementById('receptorModeTitle');
+  const receptorModeText = document.getElementById('receptorModeText');
+
+  if (receptorClientePanel && receptorNominaPanel) {
+    receptorClientePanel.hidden = isNomina;
+    receptorClientePanel.classList.toggle('is-hidden', isNomina);
+
+    receptorNominaPanel.hidden = !isNomina;
+    receptorNominaPanel.classList.toggle('is-hidden', !isNomina);
+  }
+
+  if (receptorSelect) {
+    receptorSelect.required = !isNomina;
+    receptorSelect.disabled = isNomina;
+  }
+
+  if (empleadoNominaSelect) {
+    empleadoNominaSelect.required = isNomina;
+    empleadoNominaSelect.disabled = !isNomina;
+  }
+
+  if (receptorModeTitle && receptorModeText) {
+    receptorModeTitle.textContent = isNomina ? 'Empleado de nómina' : 'Cliente fiscal';
+    receptorModeText.textContent = isNomina
+      ? 'Nómina usa empleados, no receptores comerciales. Se bloquean adendas y complementos no aplicables.'
+      : 'Para este CFDI se usa el catálogo normal de receptores fiscales.';
+  }
+
+  if (isNomina && usoCfdiInput) {
+    usoCfdiInput.value = 'CN01';
+  }
+
+  updateReceptorCard();
+
+  const tipoCard = document.getElementById('tipoCfdiSmartCard');
+  const receptorTitle = document.querySelector('#receptor h2');
+  const receptorDesc = document.querySelector('#receptor summary p');
+  const conceptosTitle = document.querySelector('#conceptos h2');
+  const conceptosDesc = document.querySelector('#conceptos summary p');
+  const heroTitle = document.querySelector('.cfdi-title-row h1');
+
+  const typeCopy = {
+    I: {
+      title: 'Factura de ingreso',
+      desc: 'Flujo normal: cliente fiscal, productos o servicios, método de pago y timbrado.',
+      receptor: 'Receptor',
+      receptorDesc: 'Cliente fiscal del CFDI.',
+      conceptos: 'Conceptos',
+      conceptosDesc: 'Productos o servicios.'
+    },
+    E: {
+      title: 'CFDI de egreso',
+      desc: 'Usa este flujo para notas de crédito, devoluciones o descuentos relacionados a un CFDI previo.',
+      receptor: 'Receptor',
+      receptorDesc: 'Cliente fiscal relacionado al CFDI original.',
+      conceptos: 'Conceptos de egreso',
+      conceptosDesc: 'Conceptos que disminuyen o corrigen el CFDI relacionado.'
+    },
+    P: {
+      title: 'Complemento de pago REP',
+      desc: 'Selecciona CFDIs PPD pendientes y registra el pago sin conceptos normales ni adenda.',
+      receptor: 'Receptor del pago',
+      receptorDesc: 'Cliente con CFDIs PPD pendientes.',
+      conceptos: 'Documentos relacionados',
+      conceptosDesc: 'Aquí después conectaremos las facturas PPD con saldo pendiente.'
+    },
+    T: {
+      title: 'Traslado / Carta Porte',
+      desc: 'Flujo especial para traslado de mercancías. Requiere datos logísticos y complemento Carta Porte.',
+      receptor: 'Receptor / Destino',
+      receptorDesc: 'Datos fiscales o destino del traslado.',
+      conceptos: 'Mercancías',
+      conceptosDesc: 'Bienes transportados, no servicios normales.'
+    },
+    N: {
+      title: 'Recibo de nómina',
+      desc: 'Flujo exclusivo para empleados, percepciones, deducciones y complemento de nómina.',
+      receptor: 'Empleado',
+      receptorDesc: 'Receptor de nómina. No usa la lista normal de clientes.',
+      conceptos: 'Percepciones y deducciones',
+      conceptosDesc: 'No son productos ni servicios normales.'
+    }
+  };
+
+  const copy = typeCopy[tipo] || typeCopy.I;
+
+  if (heroTitle) heroTitle.textContent = 'Nuevo CFDI · ' + copy.title;
+  if (tipoCard) {
+    tipoCard.innerHTML = `
+      <strong>${esc(copy.title)}</strong>
+      <span>${esc(copy.desc)}</span>
+    `;
+  }
+
+  if (receptorTitle) receptorTitle.textContent = copy.receptor;
+  if (receptorDesc) receptorDesc.textContent = copy.receptorDesc;
+  if (conceptosTitle) conceptosTitle.textContent = copy.conceptos;
+  if (conceptosDesc) conceptosDesc.textContent = copy.conceptosDesc;
+
+  setSectionVisible('conceptos', true);
+  setSectionVisible('revision', true);
+
+  const adendaCard = document.getElementById('adenda');
+  const adendaCheck = document.getElementById('adenda_activa');
+  const complementosAccordion = document.getElementById('complementosAccordion');
+
+  if (adendaCard) {
+    const allowAdenda = isIngreso || isEgreso;
+    adendaCard.hidden = !allowAdenda;
+    adendaCard.classList.toggle('is-hidden', !allowAdenda);
+
+    if (!allowAdenda && adendaCheck) {
+      adendaCheck.checked = false;
+      syncAdenda();
+    }
+  }
+
+  document.querySelectorAll('.comp-pill').forEach(function (pill) {
+    const key = String(pill.dataset.complemento || '').toLowerCase();
+    const input = pill.querySelector('input[type="checkbox"]');
+
+    let allowed = isIngreso || isEgreso;
+
+    if (isPago) allowed = key === 'pagos';
+    if (isNomina) allowed = key === 'nomina';
+    if (isTraslado) allowed = key === 'carta_porte';
+
+    pill.classList.toggle('disabled', !allowed);
+
+    if (input) {
+      input.disabled = !allowed;
+
+      if (!allowed) {
+        input.checked = false;
+        pill.classList.remove('active');
+      }
+
+      if ((isPago && key === 'pagos') || (isNomina && key === 'nomina') || (isTraslado && key === 'carta_porte')) {
+        input.checked = true;
+        pill.classList.add('active');
+      }
+    }
+  });
+
+  if (complementosAccordion) {
+    complementosAccordion.open = isPago || isNomina || isTraslado;
+  }
+
+  if (isPago) {
+    if (metodoPagoInput) metodoPagoInput.value = 'PPD';
+    if (formaPagoInput) formaPagoInput.value = '99';
+    if (usoCfdiInput) usoCfdiInput.value = 'CP01';
+  }
+
+  if (isNomina) {
+    if (metodoPagoInput) metodoPagoInput.value = 'PUE';
+    if (formaPagoInput) formaPagoInput.value = '99';
+    if (usoCfdiInput) usoCfdiInput.value = 'CN01';
+  }
+
+  if (isTraslado) {
+    if (metodoPagoInput) metodoPagoInput.value = '';
+    if (formaPagoInput) formaPagoInput.value = '';
+    if (usoCfdiInput) usoCfdiInput.value = 'S01';
+  }
+
+  if (isEgreso) {
+    if (usoCfdiInput && !usoCfdiInput.value) usoCfdiInput.value = 'G02';
+  }
+
+  updateAI();
+}
+
+tipoDocumentoInput?.addEventListener('change', function () {
+  syncTipoComprobanteUi();
+  recalc();
+});
+
+/* =========================================================
+   P360 · Acción real del formulario
+   Guardar = borrador / Timbrar = PAC
+========================================================= */
+
+const accionCfdiInput = document.getElementById('accion_cfdi');
+
+function setCfdiAction(action) {
+  if (!accionCfdiInput) return;
+  accionCfdiInput.value = action === 'timbrar' ? 'timbrar' : 'borrador';
+}
+
+document.querySelectorAll('[data-cfdi-action]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    setCfdiAction(button.dataset.cfdiAction || 'borrador');
+  });
+});
+
+form.addEventListener('submit', function (event) {
+  const submitter = event.submitter || document.activeElement;
+  const action = submitter?.dataset?.cfdiAction || accionCfdiInput?.value || 'borrador';
+
+  setCfdiAction(action);
+
+  if (action !== 'timbrar') {
+    return;
+  }
+
+  const tipo = getTipoCfdi();
+  const label = {
+    I: 'factura de ingreso',
+    E: 'nota de crédito / egreso',
+    T: 'comprobante de traslado',
+    P: 'complemento de pago',
+    N: 'recibo de nómina'
+  }[tipo] || 'CFDI';
+
+  const ok = confirm(`¿Confirmas timbrar este ${label}? Se enviará al PAC y, si se timbra correctamente, se enviará por correo.`);
+
+  if (!ok) {
+    event.preventDefault();
+    setCfdiAction('borrador');
+    return;
+  }
+
+  submitter?.setAttribute('disabled', 'disabled');
+  submitter?.classList.add('is-loading');
+});
+
+syncTipoComprobanteUi();
 
   if (!itemsBody.children.length) {
     addItem({

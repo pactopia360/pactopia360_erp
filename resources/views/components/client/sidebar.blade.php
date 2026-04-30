@@ -121,7 +121,7 @@ $stateOf = function (string $key) use ($modsState, $legacyMods): string {
   $rtInv         = $resolveRoute(['cliente.modulos.inventario','cliente.inventario.index','cliente.inventario'], null);
   $rtVentas      = $resolveRoute(['cliente.modulos.ventas','cliente.ventas.index','cliente.ventas'], null);
   $rtRep         = $resolveRoute(['cliente.modulos.reportes','cliente.reportes.index','cliente.reportes','cliente.dashboard.index','cliente.dashboard'], null);
-  $rtRh          = $resolveRoute(['cliente.modulos.rh','cliente.rh.index','cliente.rh'], null);
+  $rtRh          = $resolveRoute(['cliente.rh.empleados.index','cliente.rh.index','cliente.modulos.rh','cliente.rh'], null);
   $rtTimbres     = $resolveRoute(['cliente.modulos.timbres','cliente.timbres.index','cliente.timbres'], null);
 
   $rtCfgAdv      = $resolveRoute(['cliente.config.avanzada','cliente.configuracion.avanzada','cliente.config.index','cliente.configuracion.index'], null);

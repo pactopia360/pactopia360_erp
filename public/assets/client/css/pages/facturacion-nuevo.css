@@ -2308,3 +2308,660 @@ body.cfdi-product-modal-open{
         justify-content: center;
     }
 }
+
+/* =========================================================
+   P360 · Nuevo CFDI 360 redesign final
+========================================================= */
+
+.cfdi-saas {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(37, 99, 235, .08), transparent 28%),
+    linear-gradient(180deg, #f4f7fb 0%, #eef3f9 100%);
+}
+
+.cfdi-app {
+  gap: 16px;
+}
+
+.cfdi-command {
+  min-height: 72px;
+  border-radius: 24px;
+  background: rgba(255,255,255,.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(207, 221, 242, .9);
+  box-shadow: 0 16px 42px rgba(16, 26, 52, .055);
+}
+
+.cfdi-focus {
+  padding: 18px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(96,165,250,.95), transparent 31%),
+    linear-gradient(135deg, #173b78 0%, #2458cf 55%, #60a5fa 100%);
+  box-shadow: 0 22px 52px rgba(37, 99, 235, .22);
+}
+
+.cfdi-focus-main {
+  min-height: 126px;
+  border-radius: 24px;
+  background: rgba(9, 30, 78, .42);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
+}
+
+.cfdi-focus-main h2 {
+  font-size: clamp(34px, 3.4vw, 52px);
+}
+
+.cfdi-focus-main p {
+  max-width: 620px;
+  font-size: 13px;
+}
+
+.cfdi-focus-stats div {
+  min-height: 126px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.18);
+}
+
+.cfdi-stepper {
+  border-radius: 24px;
+  padding: 10px;
+  background: rgba(255,255,255,.88);
+  backdrop-filter: blur(12px);
+}
+
+.cfdi-step {
+  min-height: 48px;
+}
+
+.cfdi-step.active {
+  background: linear-gradient(135deg, #eef4ff, #e8f1ff);
+  box-shadow: inset 0 0 0 1px rgba(37,99,235,.08);
+}
+
+.cfdi-layout {
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 18px;
+}
+
+.cfdi-builder {
+  gap: 14px;
+}
+
+.cfdi-card {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(207, 221, 242, .95);
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 16px 42px rgba(16, 26, 52, .052);
+}
+
+.cfdi-card > summary,
+.cfdi-card-head,
+.cfdi-concepts-clean-head {
+  list-style: none;
+  cursor: pointer;
+  min-height: 82px;
+  margin: 0;
+  padding: 18px 20px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border-bottom: 1px solid rgba(221, 231, 245, .85);
+}
+
+.cfdi-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cfdi-card > summary::after,
+.cfdi-card-head::after,
+.cfdi-concepts-clean-head::after {
+  content: '+';
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  font-weight: 950;
+  margin-left: auto;
+}
+
+details[open].cfdi-card > summary::after {
+  content: '−';
+}
+
+.cfdi-card[open] {
+  border-color: rgba(37, 99, 235, .22);
+}
+
+.cfdi-card h2 {
+  font-size: 21px;
+}
+
+.cfdi-card p {
+  font-size: 11px;
+}
+
+.cfdi-card > :not(summary):not(.cfdi-card-head):not(.cfdi-concepts-clean-head) {
+  margin-left: 18px;
+  margin-right: 18px;
+}
+
+.cfdi-card > :last-child {
+  margin-bottom: 18px;
+}
+
+.cfdi-emisor-select-shell,
+.cfdi-client-picker,
+.cfdi-grid,
+.cfdi-concepts-ai-clean,
+.cfdi-concept-cards,
+.cfdi-review-grid,
+.cfdi-smart-card,
+.cfdi-adenda-body {
+  margin-top: 16px;
+}
+
+.cfdi-emisor-mini-status {
+  margin: 14px 18px 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.cfdi-mini-chip {
+  min-height: 58px;
+  background: #fbfdff;
+}
+
+.floating-field span,
+.concept-field span {
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.floating-field input,
+.floating-field select,
+.floating-field textarea {
+  height: 50px;
+  border-radius: 16px;
+  background: #fbfdff;
+}
+
+.cfdi-smart-card,
+.cfdi-concepts-ai-clean {
+  background:
+    radial-gradient(circle at top right, rgba(37,99,235,.12), transparent 28%),
+    #f6f9ff;
+  border-color: #d9e7ff;
+}
+
+.cfdi-side-panel {
+  top: 88px;
+  gap: 14px;
+}
+
+.cfdi-total-card,
+.cfdi-ai-card {
+  border-radius: 24px;
+  background: rgba(255,255,255,.94);
+  border: 1px solid rgba(207, 221, 242, .95);
+  box-shadow: 0 18px 46px rgba(16, 26, 52, .075);
+}
+
+.cfdi-total-card {
+  padding: 18px;
+}
+
+.cfdi-total-top strong {
+  font-size: 34px;
+}
+
+#aiScore {
+  background: linear-gradient(135deg, #eef4ff, #dbeafe);
+}
+
+.cfdi-side-actions .cfdi-btn {
+  min-height: 48px;
+  border-radius: 15px;
+}
+
+.cfdi-ai-card {
+  padding: 18px;
+}
+
+.ai-item {
+  font-size: 11px;
+}
+
+.concept-card-pro {
+  margin: 0 0 14px;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(16,26,52,.04);
+}
+
+.cfdi-add-line {
+  width: calc(100% - 36px);
+  margin: 0 18px 18px;
+  background: #f8fbff;
+}
+
+.cfdi-concepts-footer {
+  margin: 0 18px 18px;
+}
+
+.comp-pill {
+  background: #f8fbff;
+}
+
+.comp-pill.active {
+  background: linear-gradient(135deg, #eef4ff, #e8f1ff);
+}
+
+.is-hidden,
+[hidden] {
+  display: none !important;
+}
+
+.cfdi-btn.is-loading {
+  pointer-events: none;
+  opacity: .72;
+  position: relative;
+}
+
+.cfdi-btn.is-loading::after {
+  content: '';
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,.65);
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: p360Spin .7s linear infinite;
+}
+
+@keyframes p360Spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1280px) {
+  .cfdi-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cfdi-side-panel {
+    position: relative;
+    top: auto;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .cfdi-focus {
+    padding: 14px;
+  }
+
+  .cfdi-focus-main h2 {
+    font-size: 30px;
+  }
+
+  .cfdi-card > summary,
+  .cfdi-card-head,
+  .cfdi-concepts-clean-head {
+    padding: 16px;
+  }
+
+  .cfdi-emisor-mini-status {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cfdi-card > :not(summary):not(.cfdi-card-head):not(.cfdi-concepts-clean-head) {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+}
+
+/* =========================================================
+   HERO NUEVO CFDI · LIMPIO IGUAL FACTURACIÓN 360
+========================================================= */
+
+.cfdi-saas{
+  background:#fff !important;
+}
+
+.cfdi-app{
+  background:#fff !important;
+}
+
+.cfdi-nuevo-hero{
+  width:100%;
+  background:#fff;
+  border-radius:0;
+  padding:0;
+  margin:0;
+}
+
+.cfdi-nuevo-hero__main{
+  width:100%;
+  min-height:220px;
+  border-radius:18px;
+  padding:26px 28px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 300px;
+  gap:28px;
+  align-items:center;
+  background:
+    radial-gradient(circle at 82% 22%, rgba(255,255,255,.16), transparent 28%),
+    linear-gradient(135deg,#173f89 0%,#2563eb 58%,#6ea8ff 100%);
+  overflow:hidden;
+}
+
+.cfdi-nuevo-hero__content{
+  min-width:0;
+  max-width:760px;
+  position:relative;
+}
+
+.cfdi-nuevo-hero__badge{
+  width:max-content;
+  min-height:30px;
+  padding:0 14px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.05em;
+}
+
+.cfdi-nuevo-hero__badge span{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  background:#fff;
+  box-shadow:0 0 0 6px rgba(255,255,255,.12);
+}
+
+.cfdi-nuevo-hero__title{
+  margin-top:16px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+
+.cfdi-nuevo-hero__icon{
+  width:58px;
+  height:58px;
+  flex:0 0 58px;
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+  font-size:25px;
+  box-shadow:0 14px 28px rgba(10,24,64,.20);
+}
+
+.cfdi-nuevo-hero__title h1{
+  margin:0;
+  color:#fff;
+  font-size:clamp(36px,3vw,56px);
+  line-height:.98;
+  letter-spacing:-.05em;
+  font-weight:900;
+  text-shadow:0 10px 24px rgba(10,24,64,.24);
+}
+
+.cfdi-nuevo-hero__content p{
+  max-width:760px;
+  margin:16px 0 0;
+  color:rgba(255,255,255,.96);
+  font-size:15px;
+  line-height:1.58;
+  font-weight:700;
+}
+
+.cfdi-nuevo-hero__tags{
+  margin-top:18px;
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.cfdi-nuevo-hero__tags span{
+  min-height:30px;
+  padding:0 13px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+  font-size:12px;
+  font-weight:800;
+}
+
+.cfdi-nuevo-hero__side{
+  justify-self:end;
+  width:300px;
+  display:grid;
+  gap:12px;
+}
+
+.cfdi-nuevo-hero__box{
+  min-height:74px;
+  border-radius:16px;
+  padding:14px 16px;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+}
+
+.cfdi-nuevo-hero__box small{
+  display:block;
+  color:rgba(255,255,255,.82);
+  font-size:10px;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+
+.cfdi-nuevo-hero__box strong{
+  display:block;
+  margin-top:7px;
+  color:#fff;
+  font-size:16px;
+  line-height:1;
+  font-weight:950;
+}
+
+.cfdi-nuevo-hero__box span{
+  display:block;
+  margin-top:7px;
+  color:rgba(255,255,255,.78);
+  font-size:11px;
+  font-weight:700;
+}
+
+@media(max-width:1180px){
+  .cfdi-nuevo-hero__main{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-nuevo-hero__side{
+    width:100%;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media(max-width:720px){
+  .cfdi-nuevo-hero__main{
+    padding:18px;
+  }
+
+  .cfdi-nuevo-hero__title{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+  .cfdi-nuevo-hero__title h1{
+    font-size:38px;
+  }
+
+  .cfdi-nuevo-hero__side{
+    grid-template-columns:1fr;
+  }
+}
+
+/* =========================================================
+   P360 · Corrección lado derecho HERO Nuevo CFDI
+========================================================= */
+
+.sat-clean-hero__main--portal-simple{
+  position:relative !important;
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr) 300px !important;
+  align-items:center !important;
+  gap:28px !important;
+}
+
+.cfdi-hero-status{
+  position:relative;
+  z-index:2;
+  width:300px;
+  justify-self:end;
+  display:grid;
+  gap:12px;
+}
+
+.cfdi-hero-status__item{
+  min-height:78px;
+  border-radius:18px;
+  padding:15px 16px;
+  background:rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:0 16px 34px rgba(10,24,64,.16);
+  backdrop-filter:blur(10px);
+  color:#fff;
+}
+
+.cfdi-hero-status__item span{
+  display:block;
+  margin:0;
+  color:rgba(255,255,255,.82);
+  font-size:10px;
+  line-height:1;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+}
+
+.cfdi-hero-status__item strong{
+  display:block;
+  margin-top:8px;
+  color:#fff;
+  font-size:20px;
+  line-height:1.05;
+  font-weight:950;
+  letter-spacing:-.02em;
+  white-space:nowrap;
+}
+
+.cfdi-hero-status__item small{
+  display:block;
+  margin-top:6px;
+  color:rgba(255,255,255,.78);
+  font-size:11px;
+  line-height:1.25;
+  font-weight:750;
+}
+
+@media(max-width:1180px){
+  .sat-clean-hero__main--portal-simple{
+    grid-template-columns:1fr !important;
+  }
+
+  .cfdi-hero-status{
+    width:100%;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    justify-self:stretch;
+  }
+}
+
+@media(max-width:720px){
+  .cfdi-hero-status{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-hero-status__item strong{
+    white-space:normal;
+  }
+}
+
+.cfdi-receptor-mode-card{
+  margin-bottom:14px;
+  border-radius:18px;
+  padding:15px 16px;
+  border:1px solid #d9e7ff;
+  background:linear-gradient(135deg,#f1f6ff,#ffffff);
+}
+
+.cfdi-receptor-mode-card strong{
+  display:block;
+  color:#101a34;
+  font-size:14px;
+  font-weight:950;
+}
+
+.cfdi-receptor-mode-card span{
+  display:block;
+  margin-top:6px;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.45;
+  font-weight:800;
+}
+
+.cfdi-nomina-picker{
+  margin-top:0;
+}
+
+.is-hidden{
+  display:none !important;
+}
+
+body[data-cfdi-tipo="N"] #receptorClientePanel{
+  display:none !important;
+}
+
+body[data-cfdi-tipo="N"] #receptorNominaPanel{
+  display:grid !important;
+}
+
+body[data-cfdi-tipo="N"] [data-receptor-actions-clientes]{
+  display:none !important;
+}
+
+body[data-cfdi-tipo="N"] #receptor .cfdi-smart-card{
+  border-color:#bbf7d0;
+  background:#f0fdf4;
+}
+
+@media(max-width:720px){
+  .cfdi-receptor-mode-card{
+    padding:13px;
+  }
+}

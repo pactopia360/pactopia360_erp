@@ -1,0 +1,791 @@
+body.rh360-modal-open{overflow:hidden}
+
+.page-rh-empleados{
+  --rh-blue:#2563eb;
+  --rh-blue-2:#1d4ed8;
+  --rh-dark:#10213f;
+  --rh-muted:#667894;
+  --rh-line:#dbe7f6;
+  --rh-bg:#f5f8fd;
+  --rh-soft:#eff6ff;
+}
+
+.page-rh-empleados .rh360-dialog{
+  position:fixed;
+  inset:0;
+  width:min(1180px,calc(100vw - 28px));
+  height:min(920px,calc(100vh - 28px));
+  margin:auto;
+  padding:0;
+  border:0;
+  border-radius:26px;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:0 36px 110px rgba(15,23,42,.38);
+}
+
+.page-rh-empleados .rh360-dialog::backdrop{
+  background:rgba(15,23,42,.58);
+  backdrop-filter:blur(8px);
+}
+
+.page-rh-empleados .rh360-dialog__head{
+  height:102px;
+  padding:22px 26px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  color:#fff;
+  background:linear-gradient(135deg,#163f9f 0%,#2563eb 58%,#77a8ff 100%);
+}
+
+.page-rh-empleados .rh360-dialog__head span{
+  display:block;
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  opacity:.9;
+}
+
+.page-rh-empleados .rh360-dialog__head strong{
+  display:block;
+  margin-top:4px;
+  font-size:clamp(28px,3vw,42px);
+  line-height:1;
+  font-weight:950;
+  letter-spacing:-.06em;
+}
+
+.page-rh-empleados .rh360-dialog__close{
+  width:46px;
+  height:46px;
+  border:1px solid rgba(255,255,255,.28);
+  border-radius:16px;
+  background:rgba(255,255,255,.15);
+  color:#fff;
+  font-size:30px;
+  line-height:1;
+  cursor:pointer;
+}
+
+.page-rh-empleados .rh360-form{
+  height:calc(100% - 102px);
+  padding:18px 20px 20px;
+  background:var(--rh-bg);
+  overflow:auto;
+}
+
+.page-rh-empleados .rh360-modal-layout{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 330px;
+  gap:18px;
+  align-items:start;
+}
+
+.page-rh-empleados .rh360-modal-main{
+  display:grid;
+  gap:14px;
+  min-width:0;
+}
+
+.page-rh-empleados .rh360-form-section{
+  border:1px solid var(--rh-line);
+  border-radius:22px;
+  background:#fff;
+  box-shadow:0 14px 34px rgba(16,26,52,.045);
+  overflow:hidden;
+}
+
+.page-rh-empleados .rh360-section-head{
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  padding:15px 18px;
+  border-bottom:1px solid #edf3fb;
+  background:#fff;
+}
+
+.page-rh-empleados .rh360-section-head > span{
+  width:36px;
+  height:36px;
+  border-radius:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--rh-soft);
+  color:var(--rh-blue);
+  font-size:13px;
+  font-weight:950;
+}
+
+.page-rh-empleados .rh360-section-head strong{
+  display:block;
+  color:var(--rh-dark);
+  font-size:17px;
+  font-weight:950;
+  letter-spacing:-.03em;
+}
+
+.page-rh-empleados .rh360-section-head small{
+  display:block;
+  margin-top:3px;
+  color:var(--rh-muted);
+  font-size:12px;
+  line-height:1.3;
+  font-weight:800;
+}
+
+.page-rh-empleados .rh360-form-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px;
+  padding:16px 18px 18px;
+}
+
+.page-rh-empleados .rh360-field{
+  display:grid;
+  gap:7px;
+  min-width:0;
+}
+
+.page-rh-empleados .rh360-field span{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  min-height:20px;
+  color:#536582;
+  font-size:11px;
+  line-height:1.1;
+  font-weight:950;
+}
+
+.page-rh-empleados .rh360-field span b,
+.page-rh-empleados .rh360-field span em{
+  display:inline-flex;
+  align-items:center;
+  min-height:18px;
+  padding:0 7px;
+  border-radius:999px;
+  font-size:9px;
+  line-height:1;
+  font-weight:950;
+  font-style:normal;
+  white-space:nowrap;
+}
+
+.page-rh-empleados .rh360-field span b{
+  background:#eaf2ff;
+  color:#1d4ed8;
+  border:1px solid #cfe0ff;
+}
+
+.page-rh-empleados .rh360-field span em{
+  background:#fff7ed;
+  color:#b45309;
+  border:1px solid #fed7aa;
+}
+
+.page-rh-empleados .rh360-field input,
+.page-rh-empleados .rh360-field select,
+.page-rh-empleados .rh360-field textarea{
+  width:100%;
+  height:46px;
+  border-radius:15px;
+  border:1px solid #d8e4f4;
+  background:#fff;
+  color:var(--rh-dark);
+  outline:none;
+  padding:0 13px;
+  font:850 13px/1.2 'Poppins',system-ui,sans-serif;
+}
+
+.page-rh-empleados .rh360-field input:focus,
+.page-rh-empleados .rh360-field select:focus,
+.page-rh-empleados .rh360-field textarea:focus{
+  border-color:var(--rh-blue);
+  box-shadow:0 0 0 4px rgba(37,99,235,.10);
+}
+
+.page-rh-empleados .rh360-field input:required,
+.page-rh-empleados .rh360-field select:required{
+  border-left:4px solid var(--rh-blue);
+}
+
+.page-rh-empleados .rh360-check{
+  min-height:46px;
+  margin-top:27px;
+  padding:0 13px;
+  border:1px solid #d8e4f4;
+  border-radius:15px;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:var(--rh-dark);
+  font-size:13px;
+  font-weight:900;
+}
+
+.page-rh-empleados .rh360-check input[type="checkbox"]{
+  width:18px;
+  height:18px;
+  accent-color:var(--rh-blue);
+}
+
+.page-rh-empleados .rh360-ai-card{
+  position:sticky;
+  top:0;
+  max-height:calc(100vh - 170px);
+  overflow:auto;
+  border-radius:22px;
+  padding:18px;
+  background:linear-gradient(180deg,#ffffff,#f8fbff);
+  border:1px solid var(--rh-line);
+  box-shadow:0 18px 42px rgba(16,26,52,.08);
+}
+
+.page-rh-empleados .rh360-ai-badge{
+  width:max-content;
+  min-height:28px;
+  padding:0 12px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  background:var(--rh-soft);
+  color:var(--rh-blue);
+  font-size:11px;
+  font-weight:950;
+}
+
+.page-rh-empleados .rh360-ai-card h3{
+  margin:13px 0 0;
+  color:var(--rh-dark);
+  font-size:20px;
+  font-weight:950;
+  letter-spacing:-.035em;
+}
+
+.page-rh-empleados .rh360-ai-card p{
+  margin:7px 0 14px;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.45;
+  font-weight:750;
+}
+
+.page-rh-empleados .rh360-ai-score{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px;
+  border-radius:18px;
+  background:#163f9f;
+  color:#fff;
+}
+
+.page-rh-empleados .rh360-ai-score strong{
+  font-size:28px;
+  font-weight:950;
+}
+
+.page-rh-empleados .rh360-ai-score span{
+  text-align:right;
+  font-size:11px;
+  font-weight:850;
+  line-height:1.3;
+}
+
+.page-rh-empleados .rh360-ai-list{
+  list-style:none;
+  margin:14px 0 0;
+  padding:0;
+  display:grid;
+  gap:8px;
+}
+
+.page-rh-empleados .rh360-ai-list li{
+  position:relative;
+  padding:10px 10px 10px 32px;
+  border-radius:14px;
+  background:#fff;
+  border:1px solid #e5edf8;
+  color:#475569;
+  font-size:11px;
+  line-height:1.35;
+  font-weight:850;
+}
+
+.page-rh-empleados .rh360-ai-list li::before{
+  content:"!";
+  position:absolute;
+  left:10px;
+  top:10px;
+  width:15px;
+  height:15px;
+  border-radius:999px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#fef3c7;
+  color:#b45309;
+  font-size:10px;
+  font-weight:950;
+}
+
+.page-rh-empleados .rh360-ai-list li.is-ok{
+  border-color:#bbf7d0;
+  background:#f0fdf4;
+  color:#166534;
+}
+
+.page-rh-empleados .rh360-ai-list li.is-ok::before{
+  content:"✓";
+  background:#dcfce7;
+  color:#15803d;
+}
+
+.page-rh-empleados .rh360-ai-note{
+  margin-top:12px;
+  border-radius:14px;
+  padding:11px 12px;
+  background:#eff6ff;
+  border:1px solid #bfdbfe;
+  color:#1e3a8a;
+  font-size:10.5px;
+  line-height:1.45;
+  font-weight:800;
+}
+
+.page-rh-empleados .rh360-dialog__foot{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  padding-top:16px;
+}
+
+@media(max-width:1100px){
+  .page-rh-empleados .rh360-modal-layout{grid-template-columns:1fr}
+  .page-rh-empleados .rh360-ai-card{position:relative;max-height:none}
+}
+
+@media(max-width:900px){
+  .page-rh-empleados .rh360-form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(max-width:640px){
+  .page-rh-empleados .rh360-dialog{
+    width:calc(100vw - 12px);
+    height:calc(100vh - 12px);
+    border-radius:20px;
+  }
+
+  .page-rh-empleados .rh360-dialog__head{
+    height:92px;
+    padding:18px;
+  }
+
+  .page-rh-empleados .rh360-form{
+    height:calc(100% - 92px);
+    padding:14px;
+  }
+
+  .page-rh-empleados .rh360-form-grid{grid-template-columns:1fr}
+
+  .page-rh-empleados .rh360-dialog__foot{
+    flex-direction:column;
+    align-items:stretch;
+  }
+}
+
+.page-rh-empleados .rh360-assist-note{
+  margin:0 18px 18px;
+  padding:13px 14px;
+  border-radius:16px;
+  background:#f8fbff;
+  border:1px solid #dbeafe;
+  color:#31507a;
+  font-size:11.5px;
+  line-height:1.45;
+  font-weight:800;
+}
+
+/* =========================
+   AJUSTES FINOS RH EMPLEADOS
+   Clases reales: fx360 / sat-clean / rh360
+========================= */
+
+.page-rh-empleados .sat-clean-container{
+  max-width:100%;
+}
+
+.page-rh-empleados .sat-clean-hero{
+  margin-bottom:18px;
+}
+
+.page-rh-empleados .fx360-flash{
+  margin:0 0 18px;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  border-radius:16px;
+  font-size:14px;
+  font-weight:900;
+}
+
+.page-rh-empleados .fx360-topgrid{
+  gap:16px;
+  margin-bottom:20px;
+}
+
+.page-rh-empleados .fx360-kpi{
+  min-height:96px;
+  padding:18px 20px 16px;
+  border-radius:18px;
+}
+
+.page-rh-empleados .fx360-kpi__label{
+  margin-bottom:8px;
+}
+
+.page-rh-empleados .fx360-kpi__value{
+  line-height:1;
+  margin-bottom:10px;
+}
+
+.page-rh-empleados .sat-clean-accordion{
+  margin-bottom:18px;
+}
+
+.page-rh-empleados .sat-clean-accordion__item{
+  border-radius:18px;
+  overflow:hidden;
+}
+
+.page-rh-empleados .sat-clean-accordion__summary--bar{
+  min-height:58px;
+  padding:0 16px;
+}
+
+.page-rh-empleados .rh360-header-action{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.page-rh-empleados .rh360-header-action svg{
+  width:18px;
+  height:18px;
+}
+
+.page-rh-empleados .sat-clean-accordion__content{
+  padding:12px 14px 18px;
+}
+
+.page-rh-empleados .fx360-panel{
+  margin-top:0 !important;
+  border-radius:18px;
+}
+
+.page-rh-empleados .fx360-filters.rh360-filters{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:end;
+}
+
+.page-rh-empleados .fx360-filters.rh360-filters .fx360-input{
+  height:46px;
+  border-radius:14px;
+}
+
+.page-rh-empleados .fx360-inline-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding-bottom:0;
+}
+
+.page-rh-empleados .fx360-inline-actions .sat-clean-btn{
+  height:42px;
+  min-width:82px;
+  border-radius:12px;
+}
+
+.page-rh-empleados .fx360-table-card{
+  margin-top:0;
+  border-radius:0 0 18px 18px;
+  overflow:hidden;
+}
+
+.page-rh-empleados .sat-clean-rfc-table{
+  table-layout:fixed;
+}
+
+.page-rh-empleados .sat-clean-rfc-table th,
+.page-rh-empleados .sat-clean-rfc-table td{
+  padding:12px 14px;
+  vertical-align:middle;
+}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(1),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(1){width:31%;}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(2),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(2){width:22%;}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(3),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(3){width:16%;}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(4),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(4){width:13%;}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(5),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(5){width:10%;}
+
+.page-rh-empleados .sat-clean-rfc-table th:nth-child(6),
+.page-rh-empleados .sat-clean-rfc-table td:nth-child(6){width:8%;}
+
+.page-rh-empleados .sat-clean-rfc-table td strong{
+  display:block;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.page-rh-empleados .sat-clean-rfc-inline-text{
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.page-rh-empleados .fx360-actions-icons{
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  gap:8px;
+  flex-wrap:nowrap;
+}
+
+.page-rh-empleados .fx360-action-icon{
+  width:36px;
+  height:36px;
+  min-width:36px;
+  border-radius:13px;
+}
+
+.page-rh-empleados .fx360-action-icon svg{
+  width:17px;
+  height:17px;
+}
+
+@media(max-width:900px){
+  .page-rh-empleados .fx360-filters.rh360-filters{
+    grid-template-columns:1fr;
+  }
+
+  .page-rh-empleados .fx360-inline-actions{
+    justify-content:flex-start;
+  }
+
+  .page-rh-empleados .sat-clean-rfc-table{
+    table-layout:auto;
+    min-width:920px;
+  }
+}
+
+/* =========================
+   HERO RH EMPLEADOS - TEXTO
+========================= */
+
+.page-rh-empleados .sat-clean-hero__title--portal{
+  font-size:clamp(44px,4.2vw,68px) !important;
+  line-height:.9 !important;
+  letter-spacing:-.065em !important;
+  font-weight:950 !important;
+  max-width:760px;
+}
+
+.page-rh-empleados .sat-clean-hero__text--portal{
+  max-width:720px !important;
+  margin-top:6px !important;
+  margin-bottom:16px !important;
+  color:rgba(255,255,255,.92) !important;
+  font-size:16px !important;
+  line-height:1.45 !important;
+  font-weight:750 !important;
+}
+
+.page-rh-empleados .rh360-hero-pill{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  padding:0 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.18);
+  color:rgba(255,255,255,.88) !important;
+  font-size:12px;
+  font-weight:800;
+  line-height:1;
+  backdrop-filter:blur(4px);
+}
+
+.page-rh-empleados .sat-clean-hero__main--portal-simple{
+  align-items:center !important;
+}
+
+@media(max-width:900px){
+  .page-rh-empleados .sat-clean-hero__title--portal{
+    font-size:clamp(36px,8vw,48px) !important;
+  }
+
+  .page-rh-empleados .sat-clean-hero__text--portal{
+    font-size:14px !important;
+  }
+}
+
+/* =========================
+   RH EMPLEADOS - MODAL HOMOLOGADO
+========================= */
+
+.page-rh-empleados .rh360-dialog{
+  background:#f8fbff !important;
+  border:1px solid rgba(219,234,254,.95) !important;
+  box-shadow:0 30px 90px rgba(15,23,42,.28) !important;
+}
+
+.page-rh-empleados .rh360-dialog__head{
+  background:linear-gradient(135deg,#1f4380 0%,#2d62c8 52%,#6fa0ff 100%) !important;
+  border-bottom:1px solid rgba(255,255,255,.18) !important;
+}
+
+.page-rh-empleados .rh360-dialog__head span{
+  color:rgba(255,255,255,.9) !important;
+  font-weight:950 !important;
+  letter-spacing:.04em !important;
+}
+
+.page-rh-empleados .rh360-dialog__head strong{
+  color:#fff !important;
+  font-weight:950 !important;
+  letter-spacing:-.055em !important;
+  text-shadow:0 12px 24px rgba(15,23,42,.22) !important;
+}
+
+.page-rh-empleados .rh360-dialog__close{
+  background:rgba(255,255,255,.14) !important;
+  border:1px solid rgba(255,255,255,.35) !important;
+  color:#fff !important;
+  box-shadow:none !important;
+}
+
+.page-rh-empleados .rh360-dialog__close:hover{
+  background:rgba(255,255,255,.22) !important;
+}
+
+.page-rh-empleados .rh360-form{
+  background:#f8fbff !important;
+}
+
+.page-rh-empleados .rh360-form-section{
+  background:#fff !important;
+  border:1px solid #dbe7f7 !important;
+  border-radius:22px !important;
+  box-shadow:0 14px 34px rgba(15,23,42,.06) !important;
+  overflow:hidden !important;
+}
+
+.page-rh-empleados .rh360-section-head{
+  background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%) !important;
+  border-bottom:1px solid #e8f0fb !important;
+}
+
+.page-rh-empleados .rh360-section-head > span{
+  background:#eef5ff !important;
+  color:#2563eb !important;
+  border:1px solid #dbeafe !important;
+}
+
+.page-rh-empleados .rh360-section-head strong{
+  color:#0f2147 !important;
+}
+
+.page-rh-empleados .rh360-section-head small{
+  color:#667895 !important;
+}
+
+.page-rh-empleados .rh360-field span{
+  color:#4d6385 !important;
+}
+
+.page-rh-empleados .rh360-field input,
+.page-rh-empleados .rh360-field select,
+.page-rh-empleados .rh360-field textarea{
+  background:#fff !important;
+  border:1px solid #d6e4f6 !important;
+  color:#0f2147 !important;
+  box-shadow:inset 4px 0 0 #2f6df6 !important;
+}
+
+.page-rh-empleados .rh360-field input:focus,
+.page-rh-empleados .rh360-field select:focus,
+.page-rh-empleados .rh360-field textarea:focus{
+  border-color:#3b82f6 !important;
+  box-shadow:
+    inset 4px 0 0 #2563eb,
+    0 0 0 4px rgba(59,130,246,.12) !important;
+}
+
+.page-rh-empleados .rh360-ai-card{
+  background:#fff !important;
+  border:1px solid #dbe7f7 !important;
+  border-radius:22px !important;
+  box-shadow:0 14px 34px rgba(15,23,42,.06) !important;
+}
+
+.page-rh-empleados .rh360-ai-card__tag{
+  background:#eef5ff !important;
+  color:#2563eb !important;
+  border:1px solid #dbeafe !important;
+}
+
+.page-rh-empleados .rh360-ai-card h3{
+  color:#0f2147 !important;
+}
+
+.page-rh-empleados .rh360-ai-card p{
+  color:#667895 !important;
+}
+
+.page-rh-empleados .rh360-ai-progress{
+  background:linear-gradient(135deg,#1f4380 0%,#2d62c8 55%,#6fa0ff 100%) !important;
+}
+
+.page-rh-empleados .rh360-ai-list li{
+  background:#fff !important;
+  border-color:#dbe7f7 !important;
+  color:#435673 !important;
+}
+
+.page-rh-empleados .rh360-ai-list li.is-ok{
+  background:#ecfdf5 !important;
+  border-color:#bbf7d0 !important;
+  color:#166534 !important;
+}
+
+.page-rh-empleados .rh360-dialog__foot{
+  background:#f8fbff !important;
+  border-top:1px solid #e5edf8 !important;
+  padding:16px 0 0 !important;
+}

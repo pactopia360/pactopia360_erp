@@ -221,18 +221,73 @@ public function actualizarEmisor(int|string $adminAccountId, string $emisorId, a
 }
 
     public function timbrarCfdi(int|string $adminAccountId, array $payload, ?string $env = null): array
-    {
-        $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/comprobantes');
+{
+    $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/comprobantes');
 
+    try {
         $response = $this->request($adminAccountId, 'POST', $endpoint, $payload, $env);
 
+        $body = $response->body();
+        $json = $response->json();
+
+        if (! is_array($json)) {
+            $json = [];
+        }
+
+        $ok = $response->successful();
+
         return [
-            'ok' => $response->successful(),
+            'ok' => $ok,
             'status' => $response->status(),
-            'data' => $response->json(),
-            'body' => $response->body(),
+            'endpoint' => $endpoint,
+            'data' => $json,
+            'body' => $body,
+            'message' => $ok
+                ? 'CFDI timbrado correctamente.'
+                : $this->resolveFacturotopiaErrorMessage($json, $body, $response->status()),
+        ];
+    } catch (\Throwable $e) {
+        report($e);
+
+        return [
+            'ok' => false,
+            'status' => 0,
+            'endpoint' => $endpoint,
+            'data' => [],
+            'body' => '',
+            'message' => 'Error al conectar con Facturotopia: ' . $e->getMessage(),
         ];
     }
+}
+
+protected function resolveFacturotopiaErrorMessage(array $json, string $body, int $status): string
+{
+    foreach ([
+        'message',
+        'mensaje',
+        'error',
+        'Error',
+        'descripcion',
+        'description',
+        'detail',
+        'errors.0.message',
+        'errors.0',
+    ] as $key) {
+        $value = data_get($json, $key);
+
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+    }
+
+    $body = trim($body);
+
+    if ($body !== '') {
+        return mb_substr($body, 0, 800);
+    }
+
+    return 'Facturotopia rechazó el timbrado. HTTP: ' . $status;
+}
 
     public function consultarUuid(int|string $adminAccountId, string $uuid, ?string $env = null): array
     {
