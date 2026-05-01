@@ -658,6 +658,29 @@ Route::middleware(['auth:web', 'account.active'])
             Route::get('/catalogs', [ClienteFacturacion::class, 'catalogs'])
                 ->name('catalogs');
 
+            Route::post('/ai/fill', [ClienteFacturacion::class, 'aiFill'])
+                ->name('ai.fill');
+
+            Route::post('/ai/fiscal', [ClienteFacturacion::class, 'aiFiscal'])
+                ->name('ai.fiscal');
+
+            Route::get('/templates/{tipo}', [ClienteFacturacion::class, 'downloadTemplate'])
+                ->where('tipo', 'conceptos|nomina|pagos|carta_porte|receptores|productos')
+                ->name('templates.download');
+
+            Route::post('/import/excel', [ClienteFacturacion::class, 'importExcel'])
+                ->name('import.excel');
+
+            Route::get('/rep/pendientes', [ClienteFacturacion::class, 'repPendientes'])
+                ->name('rep.pendientes');
+
+            Route::get('/empleados/nomina', [ClienteFacturacion::class, 'empleadosNomina'])
+                ->name('empleados.nomina');
+
+            Route::get('/catalogos/tipo/{tipo}', [ClienteFacturacion::class, 'catalogosPorTipo'])
+                ->where('tipo', 'I|E|T|P|N')
+                ->name('catalogos.tipo');
+
             Route::get('/postal-code/{cp}', [ClienteFacturacion::class, 'postalCode'])
                 ->where('cp', '[0-9]{5}')
                 ->name('postal-code');

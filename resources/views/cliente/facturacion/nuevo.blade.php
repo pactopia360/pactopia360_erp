@@ -155,7 +155,7 @@
                     <span>CFDI · FACTURACIÓN 360</span>
                 </div>
 
-                <div style="display:flex; align-items:center; gap:14px; margin:0 0 14px 0;">
+               <div class="cfdi-title-row" style="display:flex; align-items:center; gap:14px; margin:0 0 14px 0;">
                     <span
                         style="
                             width:58px;
@@ -529,7 +529,7 @@
                 </details>
                 
 
-                <details class="cfdi-card cfdi-card-principal cfdi-concepts-clean" id="conceptos" >
+                <details class="cfdi-card cfdi-card-principal cfdi-concepts-clean" id="conceptos" open>
                     <summary class="cfdi-concepts-clean-head">
                         <div class="cfdi-concepts-title">
                             <div class="cfdi-concepts-icon">✦</div>
@@ -547,8 +547,18 @@
 
                     <div class="cfdi-concepts-ai-clean">
                         <div>
-                            <strong>IA fiscal</strong>
-                            <span id="conceptsAiSummary">Valida clave SAT, unidad, IVA y objeto impuesto.</span>
+                            <strong>IA de llenado + IA fiscal</strong>
+                            <span id="conceptsAiSummary">Valida clave SAT, unidad, IVA, objeto impuesto y riesgos antes de timbrar.</span>
+                        </div>
+
+                        <div class="cfdi-head-actions">
+                            <button type="button" class="cfdi-btn small ghost" data-ai-fill>
+                                IA llenar concepto
+                            </button>
+
+                            <button type="button" class="cfdi-btn small primary" data-ai-fiscal>
+                                Validar fiscalmente
+                            </button>
                         </div>
 
                         <div class="cfdi-concepts-ai-score">
@@ -556,6 +566,19 @@
                             <small>/100</small>
                         </div>
                     </div>
+
+                    <div class="cfdi-smart-card" id="p360FlowHelpPanel">
+                        <strong>Ayuda inteligente por tipo CFDI</strong>
+                        <span>
+                            Selecciona el tipo de comprobante y Pactopia360 ajustará receptor, conceptos,
+                            complementos, adendas, nómina, pagos REP o Carta Porte.
+                        </span>
+                    </div>
+
+                    <div class="cfdi-smart-card is-hidden" id="p360RepPanel" hidden></div>
+                    <div class="cfdi-smart-card is-hidden" id="p360NominaPanel" hidden></div>
+                    <div class="cfdi-smart-card is-hidden" id="p360CartaPortePanel" hidden></div>
+                    <div class="cfdi-smart-card" id="p360ExcelAssistPanel"></div>
 
                     <div class="cfdi-concept-cards" id="itemsBody"></div>
 
@@ -727,11 +750,20 @@
                             Vista previa
                         </button>
 
-                        <button type="submit" class="cfdi-btn primary full" data-cfdi-action="borrador">
+                        <button type="submit"
+                                name="accion_cfdi"
+                                value="borrador"
+                                class="cfdi-btn primary full"
+                                data-cfdi-action="borrador">
                             Guardar borrador
                         </button>
 
-                        <button type="submit" class="cfdi-btn success full" id="btnTimbrarSide" data-cfdi-action="timbrar">
+                        <button type="submit"
+                                name="accion_cfdi"
+                                value="timbrar"
+                                class="cfdi-btn success full"
+                                id="btnTimbrarSide"
+                                data-cfdi-action="timbrar">
                             Timbrar CFDI
                         </button>
                     </div>
@@ -741,6 +773,16 @@
                     <div class="cfdi-side-title">
                         <strong>IA fiscal</strong>
                         <small>Qué falta para timbrar</small>
+                    </div>
+
+                    <div class="cfdi-side-actions" style="margin-bottom:12px;">
+                        <button type="button" class="cfdi-btn ghost full" data-ai-fill>
+                            IA llenar concepto
+                        </button>
+
+                        <button type="button" class="cfdi-btn primary full" data-ai-fiscal>
+                            Validar CFDI
+                        </button>
                     </div>
 
                     <div class="cfdi-ai-list" id="aiList">

@@ -109,6 +109,7 @@ class FacturotopiaService
             'url' => $url,
             'has_api_key' => !empty($config['api_key'] ?? ''),
             'customer_id' => $config['customer_id'] ?? null,
+            'payload_keys' => array_keys($payload),
         ]);
 
         return match (strtoupper($method)) {
@@ -220,11 +221,23 @@ public function actualizarEmisor(int|string $adminAccountId, string $emisorId, a
     ];
 }
 
-    public function timbrarCfdi(int|string $adminAccountId, array $payload, ?string $env = null): array
+public function timbrarCfdi(int|string $adminAccountId, array $payload, ?string $env = null): array
 {
     $endpoint = (string) config('services.facturotopia.endpoints.timbrar_cfdi', 'api/comprobantes');
 
     try {
+        $emisorId = $payload['emisor_id'] ?? null;
+        unset($payload['emisor_id']);
+
+        $payload['Fecha'] = now()->format('Y-m-d H:i:s');
+
+        $payload['Idx'] = (string) ($payload['Idx'] ?? '1');
+
+        $payload['Emisor']['Id'] = $emisorId;
+
+        $payload['Receptor']['CP'] = $payload['Receptor']['DomicilioFiscalReceptor'] ?? '';
+        $payload['Receptor']['Regimen'] = $payload['Receptor']['RegimenFiscalReceptor'] ?? '';
+
         $response = $this->request($adminAccountId, 'POST', $endpoint, $payload, $env);
 
         $body = $response->body();

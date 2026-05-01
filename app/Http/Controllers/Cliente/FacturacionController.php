@@ -1017,6 +1017,38 @@ if ($cuenta) {
         'nomina_total_percepciones' => 'nullable|numeric|min:0',
         'nomina_total_deducciones' => 'nullable|numeric|min:0',
 
+        'cfdi_relacionado_tipo' => 'nullable|string|max:10',
+        'cfdi_relacionado_uuid' => 'nullable|string|max:60',
+
+        'rep_fecha_pago' => 'nullable|date',
+        'rep_forma_pago' => 'nullable|string|max:10',
+        'rep_monto' => 'nullable|numeric|min:0',
+        'rep_moneda' => 'nullable|string|max:10',
+        'rep_num_operacion' => 'nullable|string|max:120',
+
+        'rep_documentos' => 'nullable|array',
+        'rep_documentos.*.cfdi_id' => 'nullable|integer',
+        'rep_documentos.*.uuid' => 'nullable|string|max:60',
+        'rep_documentos.*.serie' => 'nullable|string|max:40',
+        'rep_documentos.*.folio' => 'nullable|string|max:40',
+        'rep_documentos.*.moneda' => 'nullable|string|max:10',
+        'rep_documentos.*.saldo_anterior' => 'nullable|numeric|min:0',
+        'rep_documentos.*.monto_pagado' => 'nullable|numeric|min:0',
+        'rep_documentos.*.saldo_insoluto' => 'nullable|numeric|min:0',
+        'rep_documentos.*.num_parcialidad' => 'nullable|integer|min:1',
+
+        'nomina_tipo' => 'nullable|string|in:O,E',
+        'nomina_fecha_pago' => 'nullable|date',
+        'nomina_fecha_inicial_pago' => 'nullable|date',
+        'nomina_fecha_final_pago' => 'nullable|date',
+        'nomina_dias_pagados' => 'nullable|numeric|min:0.001',
+        'nomina_total_otros_pagos' => 'nullable|numeric|min:0',
+
+        'carta_porte_origen' => 'nullable|string|max:255',
+        'carta_porte_destino' => 'nullable|string|max:255',
+        'carta_porte_transporte' => 'nullable|string|max:80',
+        'carta_porte_peso_total' => 'nullable|numeric|min:0',
+
         'adenda_activa' => 'nullable|boolean',
         'adenda_tipo' => 'nullable|string|max:80',
         'adenda' => 'nullable|array',
@@ -1065,6 +1097,14 @@ if ($cuenta) {
 
     $metodoPago = strtoupper((string) ($data['metodo_pago'] ?? 'PUE'));
     $formaPago = strtoupper((string) ($data['forma_pago'] ?? '03'));
+
+    if (!empty($data['cfdi_relacionado_tipo']) && empty($data['tipo_relacion'])) {
+    $data['tipo_relacion'] = $data['cfdi_relacionado_tipo'];
+    }
+
+    if (!empty($data['cfdi_relacionado_uuid']) && empty($data['uuid_relacionado'])) {
+        $data['uuid_relacionado'] = $data['cfdi_relacionado_uuid'];
+    }
 
     if ($tipoDocumento === 'N') {
         $empleadoNomina = EmpleadoNomina::query()
@@ -1145,12 +1185,53 @@ if ($cuenta) {
                 ]);
         }
 
-        if (empty($data['conceptos']) || !is_array($data['conceptos'])) {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'conceptos' => 'Agrega al menos un concepto para este CFDI.',
+        if ($tipoDocumento === 'P') {
+            $repMonto = round((float) ($data['rep_monto'] ?? 0), 2);
+
+            if (empty($data['rep_fecha_pago'])) {
+                return back()->withInput()->withErrors([
+                    'rep_fecha_pago' => 'Captura la fecha de pago del complemento REP.',
                 ]);
+            }
+
+            if (empty($data['rep_forma_pago'])) {
+                return back()->withInput()->withErrors([
+                    'rep_forma_pago' => 'Selecciona la forma real de pago del complemento REP.',
+                ]);
+            }
+
+            if ($repMonto <= 0) {
+                return back()->withInput()->withErrors([
+                    'rep_monto' => 'El monto pagado debe ser mayor a cero.',
+                ]);
+            }
+
+            $metodoPago = 'PPD';
+            $formaPago = '99';
+            $data['uso_cfdi'] = 'CP01';
+            $data['adenda_activa'] = false;
+            $data['adenda_tipo'] = null;
+            $data['adenda'] = [];
+
+            $data['conceptos'] = [[
+                'producto_id' => null,
+                'descripcion' => 'Pago',
+                'cantidad' => 1,
+                'precio_unitario' => 0,
+                'iva_tasa' => 0,
+                'descuento' => 0,
+                'clave_producto_sat' => '84111506',
+                'clave_unidad_sat' => 'ACT',
+                'objeto_impuesto' => '01',
+            ]];
+        } else {
+            if (empty($data['conceptos']) || !is_array($data['conceptos'])) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'conceptos' => 'Agrega al menos un concepto para este CFDI.',
+                    ]);
+            }
         }
 
         foreach ($data['conceptos'] as $idx => $concepto) {
@@ -1206,6 +1287,103 @@ if ($cuenta) {
     $iva = round($iva, 2);
     $total = round($total, 2);
 
+    $repJson = null;
+$nominaJson = null;
+$cartaPorteJson = null;
+
+if ($tipoDocumento === 'P') {
+    $documentosRep = collect($data['rep_documentos'] ?? [])
+        ->map(function ($doc) {
+            $saldoAnterior = round((float) ($doc['saldo_anterior'] ?? 0), 2);
+            $montoPagado = round((float) ($doc['monto_pagado'] ?? 0), 2);
+            $saldoInsoluto = round((float) ($doc['saldo_insoluto'] ?? max(0, $saldoAnterior - $montoPagado)), 2);
+
+            $cfdiOrigen = null;
+
+            if (!empty($doc['cfdi_id']) && is_numeric($doc['cfdi_id'])) {
+                $cfdiOrigen = Cfdi::query()
+                    ->where('id', (int) $doc['cfdi_id'])
+                    ->first(['id', 'subtotal', 'iva', 'total']);
+            }
+
+            $origenIva = round((float) ($cfdiOrigen->iva ?? 0), 2);
+            $objetoImp = $origenIva > 0 ? '02' : '01';
+
+            $ivaBase = 0.0;
+            $ivaImporte = 0.0;
+
+            if ($objetoImp === '02' && $montoPagado > 0) {
+                $ivaBase = round($montoPagado / 1.16, 2);
+                $ivaImporte = round($montoPagado - $ivaBase, 2);
+            }
+
+            return [
+                'cfdi_id' => $doc['cfdi_id'] ?? null,
+                'uuid' => strtoupper(trim((string) ($doc['uuid'] ?? ''))),
+                'serie' => $doc['serie'] ?? null,
+                'folio' => $doc['folio'] ?? null,
+                'moneda' => strtoupper((string) ($doc['moneda'] ?? 'MXN')),
+                'saldo_anterior' => $saldoAnterior,
+                'monto_pagado' => $montoPagado,
+                'saldo_insoluto' => $saldoInsoluto,
+                'num_parcialidad' => (int) ($doc['num_parcialidad'] ?? 1),
+                'objeto_impuesto' => $objetoImp,
+                'iva_base' => $ivaBase,
+                'iva_importe' => $ivaImporte,
+                'iva_tasa' => '0.160000',
+            ];
+        })
+        ->filter(fn ($doc) => $doc['uuid'] !== '' && $doc['monto_pagado'] > 0)
+        ->values()
+        ->all();
+
+    if (empty($documentosRep)) {
+        return back()->withInput()->withErrors([
+            'rep_documentos' => 'Selecciona al menos una factura PPD pendiente para relacionar el pago.',
+        ]);
+    }
+
+    $totalDocumentos = round(array_sum(array_column($documentosRep, 'monto_pagado')), 2);
+    $repMonto = round((float) ($data['rep_monto'] ?? 0), 2);
+
+    if ($repMonto > $totalDocumentos) {
+        return back()->withInput()->withErrors([
+            'rep_monto' => 'El monto recibido no puede ser mayor al total aplicado a facturas PPD.',
+        ]);
+    }
+
+    $repJson = [
+        'fecha_pago' => $data['rep_fecha_pago'] ?? null,
+        'forma_pago' => $data['rep_forma_pago'] ?? null,
+        'moneda' => $data['rep_moneda'] ?? 'MXN',
+        'monto' => $repMonto,
+        'num_operacion' => $data['rep_num_operacion'] ?? null,
+        'documentos_relacionados' => $documentosRep,
+    ];
+}
+
+if ($tipoDocumento === 'N') {
+    $nominaJson = [
+        'tipo_nomina' => $data['nomina_tipo'] ?? 'O',
+        'fecha_pago' => $data['nomina_fecha_pago'] ?? now()->toDateString(),
+        'fecha_inicial_pago' => $data['nomina_fecha_inicial_pago'] ?? now()->startOfMonth()->toDateString(),
+        'fecha_final_pago' => $data['nomina_fecha_final_pago'] ?? now()->endOfMonth()->toDateString(),
+        'dias_pagados' => number_format((float) ($data['nomina_dias_pagados'] ?? 15), 3, '.', ''),
+        'total_percepciones' => round((float) ($data['nomina_total_percepciones'] ?? 0), 2),
+        'total_deducciones' => round((float) ($data['nomina_total_deducciones'] ?? 0), 2),
+        'total_otros_pagos' => round((float) ($data['nomina_total_otros_pagos'] ?? 0), 2),
+    ];
+}
+
+if ($tipoDocumento === 'T') {
+    $cartaPorteJson = [
+        'origen' => $data['carta_porte_origen'] ?? null,
+        'destino' => $data['carta_porte_destino'] ?? null,
+        'transporte' => $data['carta_porte_transporte'] ?? null,
+        'peso_total' => round((float) ($data['carta_porte_peso_total'] ?? 0), 3),
+    ];
+}
+
     $adendaActiva = $tipoDocumento === 'N' ? false : (bool) ($data['adenda_activa'] ?? false);
     $adendaTipo = $adendaActiva ? trim((string) ($data['adenda_tipo'] ?? '')) : null;
     $adendaData = $adendaActiva ? array_filter((array) ($data['adenda'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
@@ -1229,6 +1407,14 @@ if ($cuenta) {
     }
 
     $adendaXml = $adendaActiva ? $this->buildAdendaXml($adendaTipo, $adendaData) : null;
+
+    if ($tipoDocumento === 'P') {
+        $data['uso_cfdi'] = 'CP01';
+    } elseif ($tipoDocumento === 'N') {
+        $data['uso_cfdi'] = 'CN01';
+    } elseif (in_array(strtoupper((string) ($data['uso_cfdi'] ?? '')), ['CP01', 'CN01'], true)) {
+        $data['uso_cfdi'] = 'G03';
+    }
 
     $assistant = $this->fiscalAssistant([
         'rfc' => $tipoDocumento === 'N' ? $empleadoNomina?->rfc : $receptor?->rfc,
@@ -1291,7 +1477,10 @@ if ($cuenta) {
         $adendaData,
         $adendaActiva,
         $adendaXml,
-        $empleadoNomina
+        $empleadoNomina,
+        $repJson,
+        $nominaJson,
+        $cartaPorteJson
     ) {
         $now = now();
 
@@ -1334,8 +1523,10 @@ if ($cuenta) {
             'version_cfdi' => $data['version_cfdi'] ?? '4.0',
             'tipo_comprobante' => $tipoDocumento,
             'tipo_documento' => $tipoDocumento,
-            'moneda' => $data['moneda'] ?? 'MXN',
-            'tipo_cambio' => $data['tipo_cambio'] ?? null,
+            'tipo_cambio' => isset($data['tipo_cambio']) && is_numeric($data['tipo_cambio'])
+                ? (float) $data['tipo_cambio']
+                : 1,
+
             'metodo_pago' => $metodoPago,
             'forma_pago' => $formaPago,
             'condiciones_pago' => $tipoDocumento === 'N' ? null : ($data['condiciones_pago'] ?? null),
@@ -1349,10 +1540,13 @@ if ($cuenta) {
             'iva' => $iva,
             'total' => $total,
             'saldo_original' => $total,
-            'saldo_pagado' => 0,
-            'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
+            'saldo_pagado' => $tipoDocumento === 'P' ? round((float) ($data['rep_monto'] ?? 0), 2) : 0,
+            'saldo_pendiente' => $tipoDocumento === 'P' ? 0 : ($metodoPago === 'PPD' ? $total : 0),
             'estatus' => 'borrador',
             'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
+            'rep_json' => $repJson ? json_encode($repJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            'nomina_json' => $nominaJson ? json_encode($nominaJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            'carta_porte_json' => $cartaPorteJson ? json_encode($cartaPorteJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
             'ia_fiscal_score' => $assistant['score'],
             'ia_fiscal_nivel' => $assistant['nivel'],
             'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
@@ -1536,7 +1730,7 @@ protected function buildCfdiXmlFallback($cfdi): string
 
     $serie = htmlspecialchars((string) ($cfdi->serie ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8');
     $folio = htmlspecialchars((string) ($cfdi->folio ?? ''), ENT_XML1 | ENT_QUOTES, 'UTF-8');
-    $fecha = optional($cfdi->fecha)->format('Y-m-d\TH:i:s') ?: now()->format('Y-m-d\TH:i:s');
+    $fecha = optional($cfdi->fecha)->format('Y-m-d\TH:i:s') ?: now()->format('Y-m-d H:i:s');
 
     $emisorRfc = htmlspecialchars((string) ($cfdi->emisor_rfc ?? 'XAXX010101000'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
     $emisorNombre = htmlspecialchars((string) ($cfdi->emisor_razon_social ?? $cfdi->emisor_nombre ?? 'EMISOR'), ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -1721,6 +1915,31 @@ public function descargarZip(int $cfdi)
 
     try {
         $payloadJson = $this->buildFacturotopiaPayloadFromCfdi($item);
+
+        foreach (['Version', 'Fecha', 'TipoDeComprobante', 'Emisor', 'Receptor', 'Conceptos'] as $requiredKey) {
+            if (!array_key_exists($requiredKey, $payloadJson)) {
+                DB::connection($conn)->table($table)->where('id', $item->id)->update($this->onlyExistingColumnsForInsert($table, $conn, [
+                    'pac_env' => $env,
+                    'pac_status' => 'payload_incompleto',
+                    'json_enviado' => json_encode($payloadJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'updated_at' => now(),
+                ]));
+
+                return back()->withErrors([
+                    'timbrado' => 'Payload CFDI 4.0 incompleto. Falta: ' . $requiredKey . '. No se envió al PAC.',
+                ]);
+            }
+        }
+
+        \Log::warning('P360.cfdi.payload.debug', [
+            'cfdi_id' => $item->id,
+            'tipo' => $payloadJson['TipoDeComprobante'] ?? null,
+            'version' => $payloadJson['Version'] ?? null,
+            'fecha' => $payloadJson['Fecha'] ?? null,
+            'uso_cfdi' => data_get($payloadJson, 'Receptor.UsoCFDI'),
+            'keys' => array_keys($payloadJson),
+            'payload_json' => json_encode($payloadJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
 
         $result = $facturotopia->timbrarCfdi($adminAccountId, $payloadJson, $env);
 
@@ -1924,6 +2143,14 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
         $usoCfdi = strtoupper(trim((string) ($cfdi->uso_cfdi ?: ($receptor->uso_cfdi ?? 'G03'))));
     }
 
+    if ($tipo === 'P') {
+        $usoCfdi = 'CP01';
+    } elseif ($tipo === 'N') {
+        $usoCfdi = 'CN01';
+    } elseif (in_array($usoCfdi, ['CP01', 'CN01'], true)) {
+        $usoCfdi = 'G03';
+    }
+
     if ($rfcReceptor === '') {
         throw new \RuntimeException('El receptor no tiene RFC válido para timbrar.');
     }
@@ -1947,95 +2174,203 @@ protected function buildFacturotopiaPayloadFromCfdi($cfdi): array
     $total = (float) ($cfdi->total ?? 0);
     $ivaTotal = (float) ($cfdi->iva ?? 0);
 
-    if ($tipo === 'P') {
-        $formaPago = '99';
-        $metodoPago = 'PPD';
-        $usoCfdi = 'CP01';
-        $subtotal = 0.0;
-        $descuento = 0.0;
-        $total = 0.0;
-        $ivaTotal = 0.0;
-    }
+    $fecha = $cfdi->fecha
+    ? Carbon::parse($cfdi->fecha)->format('Y-m-d H:i:s')
+    : now()->format('Y-m-d H:i:s');
 
-    if ($tipo === 'N') {
-        $formaPago = '99';
-        $metodoPago = 'PUE';
-        $usoCfdi = 'CN01';
-        $ivaTotal = 0.0;
-    }
+    $emisorRfc = strtoupper((string) ($cfdi->emisor_rfc ?: $cfdi->rfc_emisor));
+    $emisorNombre = strtoupper((string) ($cfdi->emisor_razon_social ?: $cfdi->razon_emisor ?: $emisorRfc));
+
+    $lugarExpedicion = preg_replace('/\D+/', '', (string) ($cfdi->cp_emisor ?? '55000'));
+    $lugarExpedicion = preg_match('/^\d{5}$/', $lugarExpedicion) ? $lugarExpedicion : '55000';
 
     $payload = [
-        'Idx' => (string) Str::uuid(),
+        'emisor_id' => $emisorId,
         'Version' => '4.0',
-        'Fecha' => optional($cfdi->fecha)->format('Y-m-d H:i:s') ?: now()->format('Y-m-d H:i:s'),
-        'FormaPago' => $formaPago,
-        'MetodoPago' => $metodoPago,
-        'SubTotal' => number_format($subtotal, 2, '.', ''),
-        'Descuento' => number_format($descuento, 2, '.', ''),
-        'Moneda' => (string) ($cfdi->moneda ?: 'MXN'),
-        'Total' => number_format($total, 2, '.', ''),
+        'Serie' => (string) ($cfdi->serie ?? ''),
+        'Folio' => (string) ($cfdi->folio ?? ''),
+        'Fecha' => $fecha,
+        'SubTotal' => number_format($tipo === 'P' ? 0 : $subtotal, 2, '.', ''),
+        'Moneda' => $tipo === 'P' ? 'XXX' : strtoupper((string) ($cfdi->moneda ?: 'MXN')),
+        'Total' => number_format($tipo === 'P' ? 0 : $total, 2, '.', ''),
         'TipoDeComprobante' => $tipo,
         'Exportacion' => '01',
+        'LugarExpedicion' => $lugarExpedicion,
         'Emisor' => [
-            'Id' => $emisorId,
+            'Rfc' => $emisorRfc,
+            'Nombre' => $emisorNombre,
+            'RegimenFiscal' => '601',
         ],
         'Receptor' => [
             'Rfc' => $rfcReceptor,
             'Nombre' => $nombreReceptor,
-            'UsoCFDI' => $usoCfdi !== '' ? $usoCfdi : 'G03',
-            'CP' => $cp,
-            'Regimen' => $regimen,
+            'DomicilioFiscalReceptor' => $cp,
+            'RegimenFiscalReceptor' => $regimen,
+            'UsoCFDI' => $usoCfdi,
         ],
         'Conceptos' => [
             'Concepto' => [],
         ],
     ];
 
-    if ($tipo !== 'N' && $tipo !== 'P') {
-        $payload['CondicionesDePago'] = (string) ($cfdi->condiciones_pago ?: 'Pago en una sola exhibición');
+    if ($payload['Serie'] === '') {
+    unset($payload['Serie']);
     }
 
-    if (!empty($cfdi->serie)) {
-        $payload['Serie'] = (string) $cfdi->serie;
+    if ($payload['Folio'] === '') {
+        unset($payload['Folio']);
     }
 
-    if (!empty($cfdi->folio)) {
-        $payload['Folio'] = (string) $cfdi->folio;
+    if ($tipo !== 'P' && $formaPago !== '') {
+        $payload['FormaPago'] = $formaPago;
     }
 
-    if ($tipo !== 'N' && !empty($cfdi->tipo_relacion) && !empty($cfdi->uuid_relacionado)) {
-        $payload['CfdiRelacionados'] = [
-            'TipoRelacion' => (string) $cfdi->tipo_relacion,
-            'CfdiRelacionado' => [
-                ['UUID' => strtoupper((string) $cfdi->uuid_relacionado)],
-            ],
-        ];
+    if ($tipo !== 'P' && $metodoPago !== '') {
+        $payload['MetodoPago'] = $metodoPago;
+    }
+
+    if ($tipo !== 'P' && strtoupper((string) ($cfdi->moneda ?: 'MXN')) !== 'MXN') {
+        $payload['TipoCambio'] = number_format((float) ($cfdi->tipo_cambio ?: 1), 6, '.', '');
     }
 
     if ($tipo === 'P') {
-        $payload['Conceptos']['Concepto'][] = [
-            'ClaveProdServ' => '84111506',
-            'Descripcion' => 'Pago',
-            'Cantidad' => '1',
-            'ClaveUnidad' => 'ACT',
-            'Unidad' => 'Actividad',
-            'ValorUnitario' => '0',
-            'Importe' => '0',
-            'ObjetoImp' => '01',
+    $rep = is_array($cfdi->rep_json)
+        ? $cfdi->rep_json
+        : (json_decode((string) ($cfdi->rep_json ?? ''), true) ?: []);
+
+    $montoPago = round((float) data_get($rep, 'monto', $cfdi->saldo_pagado ?? 0), 2);
+    $fechaPago = (string) data_get($rep, 'fecha_pago', optional($cfdi->fecha)->format('Y-m-d H:i:s') ?: now()->format('Y-m-d H:i:s'));
+    $formaPagoRep = (string) data_get($rep, 'forma_pago', '03');
+    $monedaPago = strtoupper((string) data_get($rep, 'moneda', $cfdi->moneda ?: 'MXN'));
+    $numOperacion = trim((string) data_get($rep, 'num_operacion', ''));
+
+    if ($montoPago <= 0) {
+        throw new \RuntimeException('El complemento de pago no tiene monto válido.');
+    }
+
+    $payload['Conceptos']['Concepto'][] = [
+        'ClaveProdServ' => '84111506',
+        'Descripcion' => 'Pago',
+        'Cantidad' => '1',
+        'ClaveUnidad' => 'ACT',
+        'Unidad' => 'Actividad',
+        'ValorUnitario' => '0',
+        'Importe' => '0',
+        'ObjetoImp' => '01',
+    ];
+
+    $pago = [
+        'FechaPago' => Carbon::parse($fechaPago)->format('Y-m-d\TH:i:s'),
+        'FormaDePagoP' => $formaPagoRep,
+        'MonedaP' => $monedaPago,
+        'Monto' => number_format($montoPago, 2, '.', ''),
+    ];
+
+    if ($numOperacion !== '') {
+        $pago['NumOperacion'] = $numOperacion;
+    }
+
+    $pago['DoctoRelacionado'] = [];
+
+    $totalTrasladosBaseIva16 = 0.0;
+    $totalTrasladosImpuestoIva16 = 0.0;
+
+    foreach ((array) data_get($rep, 'documentos_relacionados', []) as $doc) {
+        $uuidDoc = strtoupper(trim((string) data_get($doc, 'uuid', '')));
+
+        if ($uuidDoc === '') {
+            continue;
+        }
+
+        $saldoAnterior = round((float) data_get($doc, 'saldo_anterior', 0), 2);
+        $importePagado = round((float) data_get($doc, 'monto_pagado', 0), 2);
+        $saldoInsoluto = round((float) data_get($doc, 'saldo_insoluto', max(0, $saldoAnterior - $importePagado)), 2);
+
+        if ($importePagado <= 0) {
+            continue;
+        }
+
+        $docto = [
+            'IdDocumento' => $uuidDoc,
+            'MonedaDR' => strtoupper((string) data_get($doc, 'moneda', 'MXN')),
+            'EquivalenciaDR' => '1',
+            'NumParcialidad' => (string) data_get($doc, 'num_parcialidad', '1'),
+            'ImpSaldoAnt' => number_format($saldoAnterior, 2, '.', ''),
+            'ImpPagado' => number_format($importePagado, 2, '.', ''),
+            'ImpSaldoInsoluto' => number_format($saldoInsoluto, 2, '.', ''),
+            'ObjetoImpDR' => (string) data_get($doc, 'objeto_impuesto', '01'),
         ];
 
-        $payload['Complemento'] = [
-            'Pagos20' => [
-                'Version' => '2.0',
-                'Totales' => [
-                    'MontoTotalPagos' => number_format((float) ($cfdi->saldo_pagado ?? 0), 2, '.', ''),
+        if ((string) data_get($doc, 'objeto_impuesto', '01') === '02') {
+            $ivaBaseDr = round((float) data_get($doc, 'iva_base', 0), 2);
+            $ivaImporteDr = round((float) data_get($doc, 'iva_importe', 0), 2);
+
+            if ($ivaBaseDr <= 0 && $importePagado > 0) {
+                $ivaBaseDr = round($importePagado / 1.16, 2);
+                $ivaImporteDr = round($importePagado - $ivaBaseDr, 2);
+            }
+
+            $docto['ObjetoImpDR'] = '02';
+            $docto['ImpuestosDR'] = [
+                'TrasladosDR' => [
+                    'TrasladoDR' => [[
+                        'BaseDR' => number_format($ivaBaseDr, 2, '.', ''),
+                        'ImpuestoDR' => '002',
+                        'TipoFactorDR' => 'Tasa',
+                        'TasaOCuotaDR' => '0.160000',
+                        'ImporteDR' => number_format($ivaImporteDr, 2, '.', ''),
+                    ]],
                 ],
-                'Pago' => [],
+            ];
+
+            $totalTrasladosBaseIva16 += $ivaBaseDr;
+            $totalTrasladosImpuestoIva16 += $ivaImporteDr;
+        }
+
+        $serieDoc = trim((string) data_get($doc, 'serie', ''));
+        $folioDoc = trim((string) data_get($doc, 'folio', ''));
+
+        if ($serieDoc !== '') {
+            $docto['Serie'] = $serieDoc;
+        }
+
+        if ($folioDoc !== '') {
+            $docto['Folio'] = $folioDoc;
+        }
+
+        $pago['DoctoRelacionado'][] = $docto;
+    }
+
+    if (empty($pago['DoctoRelacionado'])) {
+        throw new \RuntimeException('El complemento de pago no tiene documentos relacionados PPD.');
+    }
+
+    if ($totalTrasladosBaseIva16 > 0) {
+        $pago['ImpuestosP'] = [
+            'TrasladosP' => [
+                'TrasladoP' => [[
+                    'BaseP' => number_format($totalTrasladosBaseIva16, 2, '.', ''),
+                    'ImpuestoP' => '002',
+                    'TipoFactorP' => 'Tasa',
+                    'TasaOCuotaP' => '0.160000',
+                    'ImporteP' => number_format($totalTrasladosImpuestoIva16, 2, '.', ''),
+                ]],
             ],
         ];
-
-        return $payload;
     }
+
+    $payload['Complemento'] = [
+        'Pagos20' => [
+            'Version' => '2.0',
+            'Totales' => [
+                'MontoTotalPagos' => number_format($montoPago, 2, '.', ''),
+            ],
+            'Pago' => [$pago],
+        ],
+    ];
+
+    return $payload;
+}
 
     if ($tipo === 'N') {
         $payload['Conceptos']['Concepto'][] = [
@@ -2526,6 +2861,12 @@ protected function extractCfdiTimbreData(string $xml): array
         $formaPago = '99';
 
         $data['uso_cfdi'] = 'CN01';
+        $data['nomina_tipo'] = $data['nomina_tipo'] ?? 'O';
+        $data['nomina_fecha_pago'] = $data['nomina_fecha_pago'] ?? now()->toDateString();
+        $data['nomina_fecha_inicial_pago'] = $data['nomina_fecha_inicial_pago'] ?? now()->startOfMonth()->toDateString();
+        $data['nomina_fecha_final_pago'] = $data['nomina_fecha_final_pago'] ?? now()->endOfMonth()->toDateString();
+        $data['nomina_dias_pagados'] = $data['nomina_dias_pagados'] ?? 15;
+        $data['nomina_total_otros_pagos'] = $data['nomina_total_otros_pagos'] ?? 0;
         $data['regimen_receptor'] = $empleadoNomina->regimen_fiscal ?: '605';
         $data['cp_receptor'] = $empleadoNomina->codigo_postal;
 
@@ -2685,6 +3026,7 @@ protected function extractCfdiTimbreData(string $xml): array
             'saldo_pagado' => 0,
             'saldo_pendiente' => $metodoPago === 'PPD' ? $total : 0,
             'estado_pago' => $metodoPago === 'PPD' ? 'pendiente_rep' : 'no_requiere_rep',
+
             'ia_fiscal_score' => $assistant['score'],
             'ia_fiscal_nivel' => $assistant['nivel'],
             'ia_fiscal_snapshot' => json_encode($assistant, JSON_UNESCAPED_UNICODE),
@@ -3371,6 +3713,430 @@ protected function consumeFacturotopiaStamp(int $adminAccountId): void
             ]);
     });
 }
+
+public function aiFill(Request $request): JsonResponse
+{
+    $tipo = strtoupper((string) $request->input('tipo_documento', 'I'));
+    $descripcion = mb_strtolower(trim((string) $request->input('descripcion', '')), 'UTF-8');
+
+    $claveProducto = '01010101';
+    $claveUnidad = 'ACT';
+    $objetoImp = '02';
+    $ivaTasa = 0.16;
+
+    if (str_contains($descripcion, 'honorario') || str_contains($descripcion, 'servicio')) {
+        $claveProducto = '80101500';
+        $claveUnidad = 'E48';
+    }
+
+    if (str_contains($descripcion, 'software') || str_contains($descripcion, 'sistema')) {
+        $claveProducto = '81111500';
+        $claveUnidad = 'E48';
+    }
+
+    if (str_contains($descripcion, 'renta') || str_contains($descripcion, 'arrendamiento')) {
+        $claveProducto = '80131500';
+        $claveUnidad = 'E48';
+    }
+
+    if ($tipo === 'P') {
+        $claveProducto = '84111506';
+        $claveUnidad = 'ACT';
+        $objetoImp = '01';
+        $ivaTasa = 0;
+    }
+
+    if ($tipo === 'N') {
+        $claveProducto = '84111505';
+        $claveUnidad = 'ACT';
+        $objetoImp = '01';
+        $ivaTasa = 0;
+    }
+
+    return response()->json([
+        'ok' => true,
+        'suggestion' => [
+            'clave_producto_sat' => $claveProducto,
+            'clave_unidad_sat' => $claveUnidad,
+            'objeto_impuesto' => $objetoImp,
+            'iva_tasa' => $ivaTasa,
+            'descripcion_normalizada' => trim((string) $request->input('descripcion', '')),
+        ],
+        'message' => 'Sugerencia IA generada con catálogo fiscal local.',
+    ]);
+}
+public function aiFiscal(Request $request): JsonResponse
+{
+    return response()->json([
+        'ok' => true,
+        'assistant' => $this->fiscalAssistant($request->all()),
+        'catalogs' => $this->fiscalCatalogs(),
+    ]);
+}
+
+public function downloadTemplate(string $tipo): StreamedResponse
+{
+    $tipo = strtolower(trim($tipo));
+
+    $headersByType = [
+        'conceptos' => [
+            'descripcion',
+            'cantidad',
+            'precio_unitario',
+            'descuento',
+            'iva_tasa',
+            'clave_producto_sat',
+            'clave_unidad_sat',
+            'objeto_impuesto',
+        ],
+        'nomina' => [
+            'numero_empleado',
+            'rfc',
+            'curp',
+            'nss',
+            'nombre_completo',
+            'tipo_nomina',
+            'fecha_pago',
+            'fecha_inicial_pago',
+            'fecha_final_pago',
+            'dias_pagados',
+            'total_percepciones',
+            'total_deducciones',
+            'total_otros_pagos',
+        ],
+        'pagos' => [
+            'uuid_factura_ppd',
+            'serie',
+            'folio',
+            'moneda',
+            'saldo_anterior',
+            'monto_pagado',
+            'saldo_insoluto',
+            'fecha_pago',
+            'forma_pago',
+            'num_operacion',
+        ],
+        'carta_porte' => [
+            'origen_rfc',
+            'origen_cp',
+            'destino_rfc',
+            'destino_cp',
+            'clave_producto_sat',
+            'descripcion_mercancia',
+            'cantidad',
+            'unidad',
+            'peso_kg',
+            'valor_mercancia',
+            'tipo_transporte',
+        ],
+        'receptores' => [
+            'rfc',
+            'razon_social',
+            'nombre_comercial',
+            'regimen_fiscal',
+            'uso_cfdi',
+            'codigo_postal',
+            'email',
+            'telefono',
+        ],
+        'productos' => [
+            'sku',
+            'descripcion',
+            'precio_unitario',
+            'iva_tasa',
+            'clave_producto_sat',
+            'clave_unidad_sat',
+            'objeto_impuesto',
+        ],
+    ];
+
+    $headers = $headersByType[$tipo] ?? $headersByType['conceptos'];
+    $filename = 'plantilla_' . $tipo . '_pactopia360_' . now()->format('Ymd_His') . '.csv';
+
+    return response()->streamDownload(function () use ($headers, $tipo) {
+        $out = fopen('php://output', 'w');
+
+        fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+        fputcsv($out, $headers);
+
+        if ($tipo === 'conceptos') {
+            fputcsv($out, [
+                'Servicio profesional',
+                '1',
+                '1000.00',
+                '0.00',
+                '0.16',
+                '80101500',
+                'E48',
+                '02',
+            ]);
+        }
+
+        if ($tipo === 'nomina') {
+            fputcsv($out, [
+                'EMP001',
+                'XAXX010101000',
+                'CURP000000HDFXXX00',
+                '00000000000',
+                'EMPLEADO DEMO',
+                'O',
+                now()->toDateString(),
+                now()->startOfMonth()->toDateString(),
+                now()->endOfMonth()->toDateString(),
+                '15.000',
+                '10000.00',
+                '1500.00',
+                '0.00',
+            ]);
+        }
+
+        if ($tipo === 'pagos') {
+            fputcsv($out, [
+                'UUID-FACTURA-PPD',
+                'A',
+                '100',
+                'MXN',
+                '1000.00',
+                '1000.00',
+                '0.00',
+                now()->format('Y-m-d H:i:s'),
+                '03',
+                'OPERACION123',
+            ]);
+        }
+
+        fclose($out);
+    }, $filename, [
+        'Content-Type' => 'text/csv; charset=UTF-8',
+    ]);
+}
+
+public function importExcel(Request $request): JsonResponse
+{
+    $request->validate([
+        'tipo' => 'nullable|string|max:40',
+        'excel_cfdi_import' => 'required|file|mimes:csv,txt,xlsx,xls|max:10240',
+    ]);
+
+    return response()->json([
+        'ok' => true,
+        'message' => 'Archivo recibido. Falta procesador XLSX avanzado; por ahora la importación queda preparada para conectar parser.',
+        'file' => [
+            'name' => $request->file('excel_cfdi_import')?->getClientOriginalName(),
+            'size' => $request->file('excel_cfdi_import')?->getSize(),
+            'mime' => $request->file('excel_cfdi_import')?->getMimeType(),
+        ],
+    ]);
+}
+
+public function repPendientes(Request $request): JsonResponse
+{
+    $cuenta = $this->currentCuenta();
+
+    if (!$cuenta) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se pudo identificar la cuenta activa.',
+            'items' => [],
+        ], 422);
+    }
+
+    $conn = $this->cfdiConn();
+    $table = (new Cfdi)->getTable();
+
+    $query = $this->cfdiBaseQuery($request)
+        ->where('metodo_pago', 'PPD')
+        ->whereIn('estatus', ['emitido', 'timbrado']);
+
+    $receptorId = (int) $request->query('receptor_id', 0);
+
+    if ($receptorId > 0 && $this->hasColumn($table, 'receptor_id', $conn)) {
+        $query->where('receptor_id', $receptorId);
+    }
+
+    if ($this->hasColumn($table, 'saldo_pendiente', $conn)) {
+        $query->where('saldo_pendiente', '>', 0);
+    }
+
+    $items = $query
+        ->orderByDesc('fecha')
+        ->limit(200)
+        ->get([
+            'id',
+            'uuid',
+            'serie',
+            'folio',
+            'fecha',
+            'total',
+            'saldo_original',
+            'saldo_pagado',
+            'saldo_pendiente',
+            'receptor_id',
+            'moneda',
+        ])
+        ->map(fn ($row) => [
+            'id' => $row->id,
+            'uuid' => $row->uuid,
+            'serie' => $row->serie,
+            'folio' => $row->folio,
+            'fecha' => optional($row->fecha)->format('Y-m-d'),
+            'moneda' => $row->moneda ?: 'MXN',
+            'total' => round((float) ($row->total ?? 0), 2),
+            'saldo_original' => round((float) ($row->saldo_original ?? $row->total ?? 0), 2),
+            'saldo_pagado' => round((float) ($row->saldo_pagado ?? 0), 2),
+            'saldo_pendiente' => round((float) ($row->saldo_pendiente ?? $row->total ?? 0), 2),
+            'label' => trim(($row->serie ?: 'S') . '-' . ($row->folio ?: $row->id)),
+        ])
+        ->values();
+
+    return response()->json([
+        'ok' => true,
+        'items' => $items,
+    ]);
+}
+
+public function empleadosNomina(Request $request): JsonResponse
+{
+    $cuenta = $this->currentCuenta();
+
+    if (!$cuenta) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se pudo identificar la cuenta activa.',
+            'items' => [],
+        ], 422);
+    }
+
+    $q = trim((string) $request->query('q', ''));
+
+    $items = EmpleadoNomina::query()
+        ->where('cuenta_id', (string) $cuenta->id)
+        ->where('activo', true)
+        ->when($q !== '', function ($query) use ($q) {
+            $query->where(function ($w) use ($q) {
+                $w->where('nombre_completo', 'like', "%{$q}%")
+                    ->orWhere('rfc', 'like', "%{$q}%")
+                    ->orWhere('numero_empleado', 'like', "%{$q}%")
+                    ->orWhere('curp', 'like', "%{$q}%");
+            });
+        })
+        ->orderBy('nombre_completo')
+        ->limit(200)
+        ->get([
+            'id',
+            'numero_empleado',
+            'rfc',
+            'curp',
+            'nss',
+            'nombre_completo',
+            'email',
+            'codigo_postal',
+            'regimen_fiscal',
+            'uso_cfdi',
+            'tipo_contrato',
+            'tipo_jornada',
+            'tipo_regimen',
+            'periodicidad_pago',
+            'departamento',
+            'puesto',
+            'riesgo_puesto',
+            'salario_base_cot_apor',
+            'salario_diario_integrado',
+        ])
+        ->map(fn ($row) => [
+            'id' => $row->id,
+            'label' => trim(($row->numero_empleado ?: 'SIN NUM') . ' · ' . ($row->nombre_completo ?: 'Empleado') . ' · ' . ($row->rfc ?: 'Sin RFC')),
+            'numero_empleado' => $row->numero_empleado,
+            'rfc' => $row->rfc,
+            'curp' => $row->curp,
+            'nss' => $row->nss,
+            'nombre_completo' => $row->nombre_completo,
+            'codigo_postal' => $row->codigo_postal,
+            'regimen_fiscal' => $row->regimen_fiscal ?: '605',
+            'uso_cfdi' => 'CN01',
+            'tipo_contrato' => $row->tipo_contrato,
+            'tipo_jornada' => $row->tipo_jornada,
+            'tipo_regimen' => $row->tipo_regimen,
+            'periodicidad_pago' => $row->periodicidad_pago,
+            'departamento' => $row->departamento,
+            'puesto' => $row->puesto,
+            'riesgo_puesto' => $row->riesgo_puesto,
+            'salario_base_cot_apor' => $row->salario_base_cot_apor,
+            'salario_diario_integrado' => $row->salario_diario_integrado,
+        ])
+        ->values();
+
+    return response()->json([
+        'ok' => true,
+        'items' => $items,
+    ]);
+}
+
+public function catalogosPorTipo(string $tipo): JsonResponse
+{
+    $tipo = strtoupper($tipo);
+    $tipo = in_array($tipo, ['I', 'E', 'T', 'P', 'N'], true) ? $tipo : 'I';
+
+    $base = $this->fiscalCatalogs();
+
+    $rules = [
+        'I' => [
+            'receptor_tipo' => 'receptor',
+            'conceptos' => true,
+            'adenda' => true,
+            'complementos' => ['retenciones', 'comercio_ext'],
+            'uso_default' => 'G03',
+            'metodo_default' => 'PUE',
+            'forma_default' => '03',
+        ],
+        'E' => [
+            'receptor_tipo' => 'receptor',
+            'conceptos' => true,
+            'adenda' => true,
+            'complementos' => [],
+            'uso_default' => 'G02',
+            'metodo_default' => 'PUE',
+            'forma_default' => '03',
+            'requiere_cfdi_relacionado' => true,
+        ],
+        'T' => [
+            'receptor_tipo' => 'receptor',
+            'conceptos' => false,
+            'adenda' => false,
+            'complementos' => ['carta_porte'],
+            'uso_default' => 'S01',
+            'metodo_default' => null,
+            'forma_default' => null,
+        ],
+        'P' => [
+            'receptor_tipo' => 'receptor',
+            'conceptos' => false,
+            'adenda' => false,
+            'complementos' => ['pagos'],
+            'uso_default' => 'CP01',
+            'metodo_default' => 'PPD',
+            'forma_default' => '99',
+            'requiere_ppd' => true,
+        ],
+        'N' => [
+            'receptor_tipo' => 'empleado',
+            'conceptos' => false,
+            'adenda' => false,
+            'complementos' => ['nomina'],
+            'uso_default' => 'CN01',
+            'metodo_default' => 'PUE',
+            'forma_default' => '99',
+        ],
+    ];
+
+    return response()->json([
+        'ok' => true,
+        'tipo' => $tipo,
+        'rules' => $rules[$tipo],
+        'catalogs' => $base,
+    ]);
+}
+
 
 protected function resolvePortalIsProFromAdmin(?object $cuenta, array $summary = []): bool
 {

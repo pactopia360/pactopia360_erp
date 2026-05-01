@@ -2965,3 +2965,302 @@ body[data-cfdi-tipo="N"] #receptor .cfdi-smart-card{
     padding:13px;
   }
 }
+
+/* =========================================================
+   P360 CFDI Nuevo · UX compacta por tipo CFDI
+========================================================= */
+
+.cfdi-saas{
+  background:#f5f7fb;
+}
+
+.cfdi-card{
+  padding:16px;
+}
+
+.cfdi-card-head{
+  margin-bottom:12px;
+}
+
+.cfdi-card h2{
+  font-size:19px;
+}
+
+.cfdi-card p,
+.cfdi-smart-card span,
+.cfdi-side-title small{
+  font-size:11px;
+  line-height:1.32;
+}
+
+.cfdi-smart-card{
+  margin-top:10px;
+  padding:12px 13px;
+  border-radius:16px;
+  background:#f8fbff;
+  border-color:#dce8f7;
+}
+
+.cfdi-smart-card strong{
+  font-size:13px;
+}
+
+.cfdi-grid{
+  gap:10px;
+}
+
+.floating-field{
+  gap:5px;
+}
+
+.floating-field input,
+.floating-field select,
+.floating-field textarea,
+.input-cfdi,
+.select-cfdi,
+.textarea-cfdi{
+  height:42px;
+  border-radius:13px;
+  font-size:12px;
+}
+
+.cfdi-btn{
+  min-height:38px;
+  border-radius:13px;
+  font-size:12px;
+}
+
+.cfdi-btn.small{
+  min-height:32px;
+  padding:0 11px;
+  font-size:11px;
+}
+
+/* IA más discreta */
+.cfdi-ai-card{
+  padding:14px;
+}
+
+.cfdi-side-title{
+  margin-bottom:8px;
+}
+
+.cfdi-side-title strong{
+  font-size:15px;
+}
+
+.cfdi-side-actions{
+  margin-top:8px;
+  gap:7px;
+}
+
+.cfdi-ai-list{
+  gap:7px;
+}
+
+.ai-item{
+  padding:8px 8px 8px 28px;
+  border-radius:12px;
+  background:#f8fafc;
+  font-size:11px;
+}
+
+.ai-item::before{
+  top:8px;
+  left:7px;
+  width:16px;
+  height:16px;
+  font-size:10px;
+}
+
+.ai-item strong{
+  font-size:11px;
+}
+
+.ai-item small{
+  display:none;
+}
+
+#aiScore{
+  width:40px;
+  height:40px;
+  border-radius:14px;
+  font-size:18px;
+}
+
+/* Complementos más claros */
+.cfdi-accordion{
+  margin-top:10px;
+  padding:12px;
+  border-radius:16px;
+}
+
+.cfdi-complements-grid{
+  gap:8px;
+}
+
+.comp-pill{
+  min-height:34px;
+  padding:0 11px;
+  font-size:11px;
+}
+
+.comp-pill span{
+  font-size:13px;
+}
+
+.comp-pill b{
+  max-width:150px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* Paneles dinámicos */
+#p360RepPanel,
+#p360NominaPanel,
+#p360CartaPortePanel{
+  border-color:#cfe0ff;
+  background:#f8fbff;
+}
+
+#p360ExcelAssistPanel{
+  background:#fff;
+  border-style:dashed;
+  padding:10px 12px;
+}
+
+#p360ExcelAssistPanel strong{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+
+#p360ExcelAssistPanel strong::before{
+  content:"↥";
+  width:22px;
+  height:22px;
+  border-radius:8px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:#eef4ff;
+  color:#2563eb;
+  font-size:13px;
+}
+
+#p360ExcelAssistPanel span{
+  display:none;
+}
+
+/* REP profesional */
+.cfdi-rep-list{
+  display:grid;
+  gap:10px;
+}
+
+.rep-doc-card{
+  position:relative;
+  margin:0;
+  background:#fff;
+  border:1px solid #dce8f7;
+  box-shadow:0 10px 24px rgba(16,26,52,.045);
+}
+
+.rep-doc-card:hover{
+  border-color:#9bbcff;
+  box-shadow:0 14px 30px rgba(37,99,235,.09);
+}
+
+.rep-doc-card label{
+  cursor:pointer;
+}
+
+.rep-doc-card input[type="checkbox"]{
+  width:18px;
+  height:18px;
+  accent-color:#2563eb;
+}
+
+.rep-doc-card strong{
+  font-size:13px;
+}
+
+.rep-doc-card span{
+  margin-top:4px;
+  font-size:11px;
+}
+
+.rep-doc-card .cfdi-grid.two{
+  grid-template-columns:150px 150px;
+  justify-content:end;
+  gap:10px;
+}
+
+.rep-doc-card [data-rep-insoluto]{
+  background:#f8fafc;
+  color:#15803d;
+  font-weight:950;
+}
+
+/* Ocultar ruido en Pago REP */
+body[data-cfdi-tipo="P"] #p360FlowHelpPanel,
+body[data-cfdi-tipo="P"] .cfdi-concepts-ai-clean{
+  display:none !important;
+}
+
+body[data-cfdi-tipo="P"] #conceptos .cfdi-concepts-head{
+  margin-bottom:8px;
+}
+
+body[data-cfdi-tipo="P"] #conceptos summary p{
+  display:none;
+}
+
+body[data-cfdi-tipo="P"] #p360ExcelAssistPanel{
+  margin-top:10px;
+}
+
+/* Nómina y Carta Porte también más limpios */
+body[data-cfdi-tipo="N"] #p360FlowHelpPanel,
+body[data-cfdi-tipo="T"] #p360FlowHelpPanel{
+  display:none !important;
+}
+
+body[data-cfdi-tipo="N"] #p360ExcelAssistPanel,
+body[data-cfdi-tipo="T"] #p360ExcelAssistPanel{
+  margin-top:10px;
+}
+
+/* Botones de acción más firmes */
+.cfdi-total-card .cfdi-btn.success,
+#btnTimbrarSide{
+  min-height:46px;
+  font-size:13px;
+  box-shadow:0 12px 26px rgba(22,163,74,.18);
+}
+
+.cfdi-total-card .cfdi-btn.primary{
+  min-height:42px;
+}
+
+/* Responsive */
+@media (max-width:980px){
+  .rep-doc-card .cfdi-grid.two{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media (max-width:640px){
+  .cfdi-card{
+    padding:14px;
+  }
+
+  .rep-doc-card .cfdi-grid.two{
+    grid-template-columns:1fr;
+  }
+
+  .cfdi-stepper{
+    grid-template-columns:repeat(5,135px);
+  }
+}
