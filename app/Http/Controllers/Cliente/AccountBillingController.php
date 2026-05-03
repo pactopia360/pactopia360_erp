@@ -888,12 +888,29 @@ final class AccountBillingController extends Controller
             $overrideTable = $this->overrideTable();
 
             if (Schema::connection($adm)->hasTable($overrideTable)) {
+                $ovCols = Schema::connection($adm)->getColumnListing($overrideTable);
+                $ovLc   = array_map('strtolower', $ovCols);
+                $ovHas  = fn (string $c): bool => in_array(strtolower($c), $ovLc, true);
+
+                $ovSelect = ['period', 'status_override'];
+
+                if ($ovHas('paid_at')) {
+                    $ovSelect[] = 'paid_at';
+                }
+
+                if ($ovHas('meta')) {
+                    $ovSelect[] = 'meta';
+                }
+
+                if ($ovHas('updated_at')) {
+                    $ovSelect[] = 'updated_at';
+                }
+
                 $ovRows = DB::connection($adm)->table($overrideTable)
-                    ->select(['period', 'status_override', 'paid_at', 'updated_at'])
+                    ->select($ovSelect)
                     ->where('account_id', $accountId)
                     ->orderBy('period')
                     ->get();
-
                 foreach ($ovRows as $ov) {
                     $p = trim((string) ($ov->period ?? ''));
                     if (!$this->isValidPeriod($p)) {
@@ -903,9 +920,16 @@ final class AccountBillingController extends Controller
                     $allPeriods[$p] = true;
 
                     if (!isset($overrideMap[$p])) {
+                        $ovMeta = [];
+
+                        if (isset($ov->meta) && is_string($ov->meta) && trim($ov->meta) !== '') {
+                            $decodedMeta = json_decode($ov->meta, true);
+                            $ovMeta = is_array($decodedMeta) ? $decodedMeta : [];
+                        }
+
                         $overrideMap[$p] = [
                             'status_override' => strtolower(trim((string) ($ov->status_override ?? ''))),
-                            'paid_at'         => $ov->paid_at ?? null,
+                            'paid_at'         => $ov->paid_at ?? data_get($ovMeta, 'paid_at'),
                             'updated_at'      => $ov->updated_at ?? null,
                         ];
                     }

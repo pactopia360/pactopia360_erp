@@ -24,6 +24,7 @@ use Illuminate\Validation\ValidationException;
 use Throwable;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use App\Models\Admin\Billing\BillingStatementItem;
 
 
 final class BillingStatementsV2Controller extends Controller
@@ -468,6 +469,23 @@ final class BillingStatementsV2Controller extends Controller
         ]);
     }
 
+    public function generateCutoff(Request $request): RedirectResponse
+    {
+        $period = trim((string) $request->input('period', now()->format('Y-m')));
+
+        if (!$this->isValidPeriod($period)) {
+            return back()->withErrors([
+                'period' => 'Periodo inválido.',
+            ]);
+        }
+
+        $stats = $this->generateCutoffRowsForPeriod($period, $request->boolean('force'));
+
+        return redirect()
+            ->route('admin.billing.statements_v2.index', ['period' => $period])
+            ->with('ok', "Corte generado. Creados: {$stats['created']}. Actualizados: {$stats['updated']}. Omitidos: {$stats['skipped']}.");
+    }
+
     public function preview(Request $request, string $accountId, string $period)
     {
         abort_if(!$this->isValidPeriod($period), 422);
@@ -808,9 +826,10 @@ final class BillingStatementsV2Controller extends Controller
         return back()->with('ok', 'Estado de cuenta enviado correctamente.');
     }
 
-        public function sendBulk(Request $request): JsonResponse
+    public function sendBulk(Request $request): JsonResponse
     {
         $period = trim((string) $request->input('period', now()->format('Y-m')));
+
         if (!$this->isValidPeriod($period)) {
             return response()->json([
                 'ok'      => false,
@@ -818,7 +837,10 @@ final class BillingStatementsV2Controller extends Controller
             ], 422);
         }
 
+        $this->generateCutoffRowsForPeriod($period, false);
+
         $mode = strtolower(trim((string) $request->input('mode', 'visible')));
+
         $selectedIds = collect((array) $request->input('selected_ids', []))
             ->map(static fn ($value) => trim((string) $value))
             ->filter()
@@ -836,23 +858,30 @@ final class BillingStatementsV2Controller extends Controller
                 ->values();
         }
 
-        $queued = 0;
+        $sent = 0;
+        $failed = 0;
+        $skipped = 0;
 
         foreach ($statements as $statement) {
             $accountId = trim((string) ($statement->account_id ?? ''));
             $statementPeriod = trim((string) ($statement->period ?? ''));
 
             if ($accountId === '' || !$this->isValidPeriod($statementPeriod)) {
+                $skipped++;
                 continue;
             }
 
             $statementRow = $this->findStatementRow($accountId, $statementPeriod);
+
             if (!$statementRow) {
+                $skipped++;
                 continue;
             }
 
             $recipients = $this->resolveDefaultRecipientsForStatement($statementRow);
+
             if (empty($recipients)) {
+                $skipped++;
                 continue;
             }
 
@@ -869,27 +898,30 @@ final class BillingStatementsV2Controller extends Controller
                 $previewUrl !== '#' ? $previewUrl : null
             );
 
-            foreach ($recipients as $recipient) {
-                Mail::html($html, function ($mailMessage) use ($recipient, $subject) {
-                    $mailMessage->to($recipient)->subject($subject);
-                });
-            }
+            try {
+                foreach ($recipients as $recipient) {
+                    Mail::html($html, function ($mailMessage) use ($recipient, $subject) {
+                        $mailMessage->to($recipient)->subject($subject);
+                    });
+                }
 
-            $this->markStatementAsSentIfPossible($accountId, $statementPeriod);
-            $queued++;
+                $this->markStatementAsSentIfPossible($accountId, $statementPeriod);
+                $sent++;
+            } catch (\Throwable $e) {
+                $failed++;
+            }
         }
 
         return response()->json([
-            'ok'            => true,
+            'ok'            => $failed === 0,
             'mode'          => $mode,
             'totalFiltered' => $totalFiltered,
-            'processed'     => $queued,
-            'message'       => $queued > 0
-                ? "Se enviaron {$queued} estados de cuenta."
-                : 'No hubo estados de cuenta válidos para enviar.',
+            'sent'          => $sent,
+            'skipped'       => $skipped,
+            'failed'        => $failed,
+            'message'       => "Envío terminado. Enviados: {$sent}. Omitidos: {$skipped}. Fallidos: {$failed}.",
         ]);
     }
-
     public function registerAdvancePayments(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -1063,15 +1095,13 @@ final class BillingStatementsV2Controller extends Controller
     {
         $ids = [];
 
-        if ($cliente->admin_account_id !== null && $cliente->admin_account_id !== '') {
-            $ids[] = (string) $cliente->admin_account_id;
+        $adminAccountId = trim((string) ($cliente->admin_account_id ?? ''));
+
+        if ($adminAccountId !== '' && ctype_digit($adminAccountId)) {
+            $ids[] = $adminAccountId;
         }
 
-        if ($cliente->id !== null && (string) $cliente->id !== '') {
-            $ids[] = (string) $cliente->id;
-        }
-
-        return array_values(array_unique(array_filter($ids, static fn ($value) => trim((string) $value) !== '')));
+        return array_values(array_unique($ids));
     }
 
     /**
@@ -1131,22 +1161,25 @@ final class BillingStatementsV2Controller extends Controller
         return isset($columns[$column]);
     }
 
-        private function shouldIncludeClienteInStatementsV2(
+    private function shouldIncludeClienteInStatementsV2(
         CuentaCliente $cliente,
         Carbon $periodDate,
         Carbon $periodEnd
     ): bool {
-        // 1) excluir cuentas inactivas / eliminadas lógicamente
-        if ($this->cuentaClienteHasColumn('activo') && (bool) ($cliente->activo ?? false) === false) {
-            return false;
+        if ($this->cuentaClienteHasColumn('activo')) {
+            $activo = $cliente->activo ?? null;
+
+            if ($activo !== null && (string) $activo === '0') {
+                return false;
+            }
         }
 
         $estadoCuenta = strtolower(trim((string) ($cliente->estado_cuenta ?? '')));
-        if (in_array($estadoCuenta, ['suspendida', 'bloqueada', 'cancelada', 'cancelled', 'deleted', 'eliminada'], true)) {
-                return false;
-            }
 
-        // 2) excluir cuentas anuales que todavía no les toca facturar
+        if (in_array($estadoCuenta, ['cancelada', 'cancelled', 'deleted', 'eliminada'], true)) {
+            return false;
+        }
+
         $billingMode = strtolower(trim((string) ($cliente->modo_cobro ?? '')));
         $isAnnual = in_array($billingMode, ['anual', 'annual', 'yearly'], true);
 
@@ -1165,8 +1198,6 @@ final class BillingStatementsV2Controller extends Controller
                 $nextInvoiceMonth = null;
             }
 
-            // Si la siguiente factura es posterior al periodo visible,
-            // entonces este mes no debe aparecer.
             if ($nextInvoiceMonth && $nextInvoiceMonth->greaterThan($periodEnd->copy()->startOfMonth())) {
                 return false;
             }
@@ -1441,13 +1472,14 @@ protected function isValidStatementPeriod(string $period): bool
         $normalizedName = strtolower(trim($clientName));
 
         $hasGenericName = preg_match('/^cuenta\s+\d+$/i', $clientName) === 1
-            || $normalizedName === 'cliente sin nombre';
+            || $normalizedName === 'cliente sin nombre'
+            || $normalizedName === '';
 
-        $hasUsefulName = !$hasGenericName && $normalizedName !== '';
-        $hasUsefulRfc = trim($clientRfc) !== '';
-        $hasUsefulEmail = trim($clientEmail) !== '';
+        if (!$hasGenericName) {
+            return false;
+        }
 
-        if ($hasUsefulName && ($hasUsefulRfc || $hasUsefulEmail)) {
+        if (trim($clientRfc) !== '' || trim($clientEmail) !== '') {
             return false;
         }
 
@@ -2014,4 +2046,218 @@ HTML;
         } catch (\Throwable $e) {
         }
     }
+
+    private function resolveCutoffAmountForCliente(CuentaCliente $cliente, string $period): float
+    {
+        $adminAccountId = trim((string) ($cliente->admin_account_id ?? ''));
+
+        if ($adminAccountId !== '' && Schema::connection($this->adm)->hasTable('accounts')) {
+            $account = DB::connection($this->adm)
+                ->table('accounts')
+                ->where('id', $adminAccountId)
+                ->first();
+
+            if ($account) {
+                $meta = [];
+
+                if (!empty($account->meta)) {
+                    try {
+                        $decoded = json_decode((string) $account->meta, true);
+                        $meta = is_array($decoded) ? $decoded : [];
+                    } catch (\Throwable $e) {
+                        $meta = [];
+                    }
+                }
+
+                foreach ([
+                    data_get($meta, 'billing.override.amount_mxn'),
+                    data_get($meta, 'billing.override_amount_mxn'),
+                    data_get($meta, 'billing.amount_mxn'),
+                    data_get($meta, 'billing.amount'),
+                    data_get($meta, 'billing.custom.amount_mxn'),
+                    data_get($meta, 'billing.custom_mxn'),
+                ] as $value) {
+                    if (is_numeric($value) && (float) $value > 0) {
+                        return round((float) $value, 2);
+                    }
+                }
+
+                foreach ([
+                    'override_amount_mxn',
+                    'custom_amount_mxn',
+                    'billing_amount_mxn',
+                    'amount_mxn',
+                    'precio_mxn',
+                    'monto_mxn',
+                    'license_amount_mxn',
+                    'billing_amount',
+                    'amount',
+                    'precio',
+                    'monto',
+                ] as $column) {
+                    if (isset($account->{$column}) && is_numeric($account->{$column}) && (float) $account->{$column} > 0) {
+                        return round((float) $account->{$column}, 2);
+                    }
+                }
+
+                try {
+                    $hub = app(BillingStatementsHubController::class);
+                    [$amount] = $hub->resolveEffectiveAmountForPeriodFromMeta($meta, $period, null);
+
+                    if (is_numeric($amount) && (float) $amount > 0) {
+                        return round((float) $amount, 2);
+                    }
+                } catch (\Throwable $e) {
+                    //
+                }
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function generateCutoffRowsForPeriod(string $period, bool $force = false): array
+{
+    $periodDate = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+    $periodEnd = $periodDate->copy()->endOfMonth();
+
+    $clientes = CuentaCliente::query()
+        ->with(['owner'])
+        ->select($this->resolveCuentaClienteSelectColumns())
+        ->where(function ($query) use ($periodEnd) {
+            if ($this->cuentaClienteHasColumn('created_at')) {
+                $query->whereNull('created_at')
+                    ->orWhere('created_at', '<=', $periodEnd);
+            }
+        })
+        ->orderByRaw('COALESCE(NULLIF(razon_social, ""), NULLIF(nombre_comercial, ""), id) asc')
+        ->get()
+        ->filter(fn (CuentaCliente $cliente) => $this->shouldIncludeClienteInStatementsV2($cliente, $periodDate, $periodEnd))
+        ->values();
+
+    $created = 0;
+    $updated = 0;
+    $skipped = 0;
+
+    foreach ($clientes as $cliente) {
+        $accountIds = $this->resolveStatementAccountIdsForCliente($cliente);
+        $accountId = (string) ($accountIds[0] ?? '');
+
+        if ($accountId === '' || !ctype_digit($accountId)) {
+            $skipped++;
+            continue;
+        }
+
+        $existing = BillingStatement::query()
+            ->where('account_id', $accountId)
+            ->where('period', $period)
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existing && !$force) {
+            $skipped++;
+            continue;
+        }
+
+        if ($existing && !$force && (bool) ($existing->is_locked ?? false)) {
+            $skipped++;
+            continue;
+        }
+
+        $owner = $cliente->owner;
+        $clientName = $this->resolveClientDisplayName($cliente, $owner);
+        $clientEmail = $this->resolveClientEmail($cliente, $owner);
+        $clientRfc = strtoupper(trim((string) ($cliente->rfc_padre ?? '')));
+
+        $amount = round(max(0.0, $this->resolveCutoffAmountForCliente($cliente, $period)), 2);
+        $status = $amount > 0.00001 ? 'pending' : 'sin_mov';
+        $dueDate = $this->resolveDefaultStatementDueDate($period);
+
+        DB::connection($this->adm)->transaction(function () use (
+            $existing,
+            $cliente,
+            $accountId,
+            $period,
+            $amount,
+            $status,
+            $dueDate,
+            $clientName,
+            $clientEmail,
+            $clientRfc,
+            &$created,
+            &$updated
+        ) {
+            $payload = [
+                'account_id'  => $accountId,
+                'period'      => $period,
+                'total_cargo' => $amount,
+                'total_abono' => 0,
+                'saldo'       => $amount,
+                'status'      => $status,
+                'due_date'    => $dueDate,
+                'snapshot'    => [
+                    'source'           => 'statements_v2_generate_cutoff',
+                    'generated_at'     => now()->toDateTimeString(),
+                    'generated_by'     => auth('admin')->id(),
+                    'client_id'        => (string) $cliente->id,
+                    'admin_account_id' => $cliente->admin_account_id !== null ? (string) $cliente->admin_account_id : null,
+                    'client_name'      => $clientName,
+                    'client_email'     => $clientEmail,
+                    'client_rfc'       => $clientRfc,
+                    'billing_mode'     => $this->resolveBillingMode($cliente),
+                    'license_type'     => $this->resolveLicenseLabel($cliente),
+                    'period'           => $period,
+                    'amount'           => $amount,
+                ],
+                'meta' => [
+                    'source'       => 'statements_v2_generate_cutoff',
+                    'generated_at' => now()->toDateTimeString(),
+                    'generated_by' => auth('admin')->id(),
+                ],
+                'is_locked' => false,
+            ];
+
+            if ($existing) {
+                $existing->fill($payload);
+                $existing->save();
+                $statement = $existing;
+                $updated++;
+            } else {
+                $statement = BillingStatement::query()->create($payload);
+                $created++;
+            }
+
+            BillingStatementItem::query()
+                ->where('statement_id', $statement->id)
+                ->where('code', 'BASE_SERVICE')
+                ->delete();
+
+            if ($amount > 0.00001) {
+                BillingStatementItem::query()->create([
+                    'statement_id' => $statement->id,
+                    'type'         => 'charge',
+                    'code'         => 'BASE_SERVICE',
+                    'description'  => $this->resolveBillingMode($cliente) === 'Anual'
+                        ? 'Servicio anual Pactopia360'
+                        : 'Servicio mensual Pactopia360',
+                    'qty'          => 1,
+                    'unit_price'   => $amount,
+                    'amount'       => $amount,
+                    'ref'          => $period,
+                    'meta'         => [
+                        'source'    => 'statements_v2_generate_cutoff',
+                        'client_id' => (string) $cliente->id,
+                        'period'    => $period,
+                    ],
+                ]);
+            }
+        });
+    }
+
+    return [
+        'created' => $created,
+        'updated' => $updated,
+        'skipped' => $skipped,
+    ];
+}
 }

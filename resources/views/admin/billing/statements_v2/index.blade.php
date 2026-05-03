@@ -47,6 +47,10 @@
         ? route('admin.billing.statements_v2.payments.bulk')
         : '';
 
+    $routeGenerateCutoff = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.generate_cutoff')
+    ? route('admin.billing.statements_v2.generate_cutoff')
+    : '';
+
     $routeCommercialAgreementSave = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.commercial_agreement.save')
     ? 'admin.billing.statements_v2.commercial_agreement.save'
     : null;
@@ -498,6 +502,28 @@
                                         </svg>
                                     </span>
                                 </button>
+
+                                @if($routeGenerateCutoff !== '')
+                                    <form method="POST" action="{{ $routeGenerateCutoff }}" style="display:inline-flex;margin:0;">
+                                        @csrf
+                                        <input type="hidden" name="period" value="{{ $currentPeriod ?? now()->format('Y-m') }}">
+
+                                        <button
+                                            type="submit"
+                                            class="bsv2-btn bsv2-btn--primary bsv2-btn--icon-only"
+                                            data-floating-label="Generar corte"
+                                            aria-label="Generar corte"
+                                            onclick="return confirm('¿Generar corte para el período {{ $currentPeriod ?? now()->format('Y-m') }}? Solo se crearán estados faltantes.')"
+                                        >
+                                            <span class="bsv2-btn__icon" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" fill="none">
+                                                    <path d="M4 5h16M4 12h16M4 19h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                    <path d="M17 16v6m-3-3h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                </svg>
+                                            </span>
+                                        </button>
+                                    </form>
+                                @endif
 
                                 <button type="button" class="bsv2-btn bsv2-btn--primary bsv2-btn--icon-only" id="bsv2-send-all-email" data-floating-label="Enviar todos" aria-label="Enviar todos">
                                     <span class="bsv2-btn__icon" aria-hidden="true">
