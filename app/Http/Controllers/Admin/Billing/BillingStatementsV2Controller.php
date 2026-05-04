@@ -2311,7 +2311,7 @@ HTML;
 
 private function billingBccEmail(): ?string
 {
-    $email = strtolower(trim((string) env('P360_BILLING_BCC_EMAIL', 'notificaciones@pactipia.com')));
+    $email = strtolower(trim((string) config('p360.billing_bcc_email', 'notificaciones@pactopia.com')));
 
     return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null;
 }
