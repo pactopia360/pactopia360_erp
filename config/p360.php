@@ -39,6 +39,11 @@ return [
         'rfc'   => env('P360_TRANSFER_RFC', ''),
     ],
 
+        /**
+     * Copia oculta para control interno de envíos de estados de cuenta.
+     */
+    'billing_bcc_email' => env('P360_BILLING_BCC_EMAIL', 'notificaciones@pactopia.com'),
+
     /**
      * ✅ Pricing canónico por plan.
      * - Valores en MXN (pesos).
