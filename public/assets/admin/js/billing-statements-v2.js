@@ -1296,6 +1296,168 @@
         }
     }
 
+    /* =========================================================
+ * Pactopia360 · Statements V2 · Facturación PPD
+ * ========================================================= */
+(function () {
+    const root = document.querySelector('[data-bsv2-root]');
+    if (!root) return;
+
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+    const invoiceProfileModal = document.getElementById('bsv2-invoice-profile-modal');
+    const invoiceProfileForm = document.getElementById('bsv2-invoice-profile-form');
+
+    const openModal = (modal) => {
+        if (!modal) return;
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('bsv2-modal-open');
+    };
+
+    const closeModal = (modal) => {
+        if (!modal) return;
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('bsv2-modal-open');
+    };
+
+    const setValue = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value || '';
+    };
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value || '—';
+    };
+
+    const notify = (message) => {
+        alert(message);
+    };
+
+    document.querySelectorAll('[data-bsv2-open-invoice-profile]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const accountId = button.dataset.accountId || '';
+            const clientName = button.dataset.clientName || '';
+            const clientRfc = button.dataset.clientRfc || '';
+            const clientEmail = button.dataset.clientEmail || '';
+            const url = button.dataset.invoiceProfileUrl || '';
+
+            if (!invoiceProfileModal || !invoiceProfileForm || !url) {
+                notify('No se pudo abrir el perfil fiscal PPD.');
+                return;
+            }
+
+            invoiceProfileForm.setAttribute('action', url);
+
+            setValue('bsv2-invoice-profile-account-id', accountId);
+            setValue('bsv2-invoice-profile-rfc', clientRfc !== 'Sin RFC' ? clientRfc : '');
+            setValue('bsv2-invoice-profile-razon', clientName);
+            setValue('bsv2-invoice-profile-email', clientEmail !== 'Sin correo' ? clientEmail : '');
+
+            setText('bsv2-invoice-profile-client-name', clientName);
+            setText('bsv2-invoice-profile-client-rfc', clientRfc);
+
+            openModal(invoiceProfileModal);
+        });
+    });
+
+    if (invoiceProfileForm) {
+        invoiceProfileForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const url = invoiceProfileForm.getAttribute('action') || '';
+            if (!url) {
+                notify('No se encontró la ruta para guardar el perfil fiscal.');
+                return;
+            }
+
+            const submitButton = invoiceProfileForm.querySelector('button[type="submit"]');
+            const originalText = submitButton ? submitButton.textContent : '';
+
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Guardando...';
+            }
+
+            try {
+                const formData = new FormData(invoiceProfileForm);
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    body: formData,
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || data.ok !== true) {
+                    throw new Error(data.message || 'No se pudo guardar el perfil fiscal PPD.');
+                }
+
+                closeModal(invoiceProfileModal);
+                notify(data.message || 'Perfil fiscal PPD guardado correctamente.');
+            } catch (error) {
+                notify(error.message || 'Error al guardar perfil fiscal PPD.');
+            } finally {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = originalText;
+                }
+            }
+        });
+    }
+
+    document.querySelectorAll('[data-bsv2-generate-invoice-request]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const url = button.dataset.invoiceRequestUrl || '';
+            const clientName = button.dataset.clientName || 'cliente';
+            const periodLabel = button.dataset.periodLabel || 'período seleccionado';
+
+            if (!url) {
+                notify('No se encontró la ruta para generar la solicitud PPD.');
+                return;
+            }
+
+            const confirmed = confirm(`¿Generar solicitud de factura PPD para ${clientName} · ${periodLabel}?`);
+            if (!confirmed) return;
+
+            const originalText = button.textContent;
+
+            button.disabled = true;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || data.ok !== true) {
+                    throw new Error(data.message || 'No se pudo generar la solicitud PPD.');
+                }
+
+                notify(data.message || 'Solicitud de factura PPD generada correctamente.');
+            } catch (error) {
+                notify(error.message || 'Error al generar solicitud PPD.');
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        });
+    });
+})();
+
     window.addEventListener('resize', repositionOpenDropdown);
     window.addEventListener('scroll', repositionOpenDropdown, true);
 

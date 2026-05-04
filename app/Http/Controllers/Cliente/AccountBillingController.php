@@ -1911,50 +1911,27 @@ final class AccountBillingController extends Controller
     
     /**
      * ==========================================================
-     * ✅ RENDER PDF (single period) usando vista cliente.billing.pdf.statement
+     * ✅ RENDER PDF usando el MISMO espejo vivo que la pantalla web
      * ==========================================================
      */
     private function renderStatementPdf(\Illuminate\Http\Request $r, int $accountId, string $period, bool $inline)
     {
-        $statementRefs = $this->buildStatementRefs((int) $accountId);
-        $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 36);
-
-        $row = null;
-        foreach ((array) $rowsAll as $rr) {
-            if ((string) ($rr['period'] ?? '') === $period) {
-                $row = $rr;
-                break;
-            }
-        }
-
-        if (!$row) {
-            $periods = [];
-            foreach ((array) $rowsAll as $rr) {
-                $pp = (string) ($rr['period'] ?? '');
-                if ($this->isValidPeriod($pp)) {
-                    $periods[] = $pp;
-                }
-            }
-
-            $periods = array_values(array_unique($periods));
-            sort($periods);
-            $fallback = !empty($periods) ? end($periods) : null;
-
-            Log::warning('[BILLING][PDF] period not found, fallback', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'fallback'   => $fallback,
-            ]);
-
-            if ($fallback && $fallback !== $period) {
-                return redirect()->route(
-                    $inline ? 'cliente.billing.pdfInline' : 'cliente.billing.pdf',
-                    ['period' => $fallback]
-                );
-            }
-
+        if ($accountId <= 0 || !$this->isValidPeriod($period)) {
             abort(404);
         }
+
+        $statementRefs = $this->buildStatementRefs((int) $accountId);
+        $rowsAll = $this->loadRowsFromAdminBillingStatements($statementRefs, 60);
+
+        try {
+            $rowsAll = $this->applyStatementOverridesForAdminAccount($accountId, $rowsAll);
+        } catch (\Throwable $e) {
+            // continúa sin overrides
+        }
+
+        [$rfc, $alias] = $this->resolveRfcAliasForUi($r, $accountId);
+
+        $lastPaid = $this->adminLastPaidPeriod($accountId);
 
         $isAnnual = false;
         try {
@@ -1965,129 +1942,144 @@ final class AccountBillingController extends Controller
 
         $billingCycle = $isAnnual ? 'annual' : 'monthly';
 
-                $serviceItems = [];
+        $basePeriod = $this->resolveContractStartPeriod($accountId);
+        $basePeriod = $this->isValidPeriod((string) $basePeriod)
+            ? (string) $basePeriod
+            : now()->format('Y-m');
+
+        $payAllowed = $this->computePayAllowed(
+            $accountId,
+            $isAnnual,
+            $basePeriod,
+            $lastPaid,
+            $statementRefs
+        );
+
+        $payAllowedUi = is_string($payAllowed) && $this->isValidPeriod($payAllowed)
+            ? $payAllowed
+            : $period;
+
+        $chargesByPeriod = [];
+
+        foreach ((array) $rowsAll as $rr) {
+            $p = trim((string) ($rr['period'] ?? ''));
+            if (!$this->isValidPeriod($p)) {
+                continue;
+            }
+
+            $charge = 0.0;
+            foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
+                if (isset($rr[$k]) && is_numeric($rr[$k])) {
+                    $charge = round(max(0.0, (float) $rr[$k]), 2);
+                    break;
+                }
+            }
+
+            if ($charge > 0.0001) {
+                $chargesByPeriod[$p] = $charge;
+            }
+        }
+
+        $mirrorRows = $this->buildLiveAdminMirrorRows(
+            $accountId,
+            (array) $rowsAll,
+            $lastPaid,
+            $payAllowedUi,
+            $rfc,
+            $alias,
+            $chargesByPeriod
+        );
+
+        $mirrorRows = $this->applyAdminPaidAmountOverrides($accountId, $mirrorRows);
+
+        $row = null;
+        foreach ($mirrorRows as $mr) {
+            if ((string) ($mr['period'] ?? '') === $period) {
+                $row = $mr;
+                break;
+            }
+        }
+
+        if (!$row) {
+            Log::warning('[BILLING][PDF] period not found in live mirror', [
+                'account_id' => $accountId,
+                'period'     => $period,
+                'periods'    => array_map(fn ($x) => $x['period'] ?? null, $mirrorRows),
+            ]);
+
+            abort(404);
+        }
+
+        $serviceItems = [];
         $prevBalance = 0.0;
         $currentPeriodDue = 0.0;
         $totalDue = 0.0;
         $prevPeriod = null;
         $prevPeriodLabel = null;
 
-        try {
-            $pendingRows = [];
+        foreach ($mirrorRows as $mr) {
+            $rp = trim((string) ($mr['period'] ?? ''));
 
-            foreach ((array) $rowsAll as $rr) {
-                $rp = trim((string) ($rr['period'] ?? ''));
-                if (!$this->isValidPeriod($rp)) {
-                    continue;
-                }
-
-                if (strcmp($rp, $period) > 0) {
-                    continue;
-                }
-
-                $st = $this->normalizeStatementStatus((string) ($rr['status'] ?? 'pending'));
-
-                $saldoRow = isset($rr['saldo']) && is_numeric($rr['saldo'])
-                    ? (float) $rr['saldo']
-                    : max(
-                        0.0,
-                        (float) ($rr['total_cargo'] ?? ($rr['charge'] ?? 0))
-                        - (float) ($rr['total_abono'] ?? ($rr['paid_amount'] ?? 0))
-                    );
-
-                $saldoRow = round(max(0.0, $saldoRow), 2);
-
-                if ($st === 'paid' || $saldoRow <= 0.00001) {
-                    continue;
-                }
-
-                $pendingRows[] = [
-                    'period' => $rp,
-                    'saldo'  => $saldoRow,
-                ];
+            if (!$this->isValidPeriod($rp)) {
+                continue;
             }
 
-            usort($pendingRows, function ($a, $b) {
-                return strcmp((string) ($a['period'] ?? ''), (string) ($b['period'] ?? ''));
-            });
-
-            foreach ($pendingRows as $pr) {
-                $rp = (string) ($pr['period'] ?? '');
-                $saldoRow = round((float) ($pr['saldo'] ?? 0), 2);
-
-                try {
-                    $label = Str::title(Carbon::parse($rp . '-01')->translatedFormat('F Y'));
-                } catch (\Throwable $e) {
-                    $label = $rp;
-                }
-
-                $serviceItems[] = [
-                    'name'       => 'Mensualidad ' . $label,
-                    'unit_price' => $saldoRow,
-                    'qty'        => 1,
-                    'subtotal'   => $saldoRow,
-                    'period'     => $rp,
-                ];
-
-                if ($rp === $period) {
-                    $currentPeriodDue += $saldoRow;
-                } else {
-                    $prevBalance += $saldoRow;
-                    $prevPeriod = $rp;
-                    $prevPeriodLabel = $label;
-                }
+            if (strcmp($rp, $period) > 0) {
+                continue;
             }
 
-            $prevBalance = round($prevBalance, 2);
-            $currentPeriodDue = round($currentPeriodDue, 2);
-            $totalDue = round($prevBalance + $currentPeriodDue, 2);
-        } catch (\Throwable $e) {
-            Log::warning('[BILLING][PDF] build detailed serviceItems failed', [
-                'account_id' => $accountId,
-                'period'     => $period,
-                'err'        => $e->getMessage(),
-            ]);
-        }
+            $st = $this->normalizeStatementStatus((string) ($mr['status'] ?? 'pending'));
+            $saldoRow = isset($mr['saldo']) && is_numeric($mr['saldo'])
+                ? round(max(0.0, (float) $mr['saldo']), 2)
+                : 0.0;
 
-        if (empty($serviceItems)) {
-            $items = [];
+            // ✅ CLAVE: si el espejo vivo dice pagado o saldo 0, NO entra al PDF.
+            if ($st === 'paid' || $saldoRow <= 0.00001) {
+                continue;
+            }
+
             try {
-                $sid = (int) ($row['id'] ?? 0);
-                if ($sid > 0) {
-                    $itemsRaw = $this->fetchStatementItems((string) config('p360.conn.admin', 'mysql_admin'), $sid);
-
-                    $items = array_values(array_map(function ($x) use ($isAnnual) {
-                        $a = is_array($x) ? $x : (array) $x;
-
-                        $name = (string) ($a['description'] ?? 'Servicio');
-
-                        if ($isAnnual) {
-                            $name = preg_replace('/\bmensual\b/iu', 'anual', $name);
-                            $name = preg_replace('/\bmonthly\b/iu', 'annual', $name);
-                        }
-
-                        return [
-                            'name'       => $name,
-                            'unit_price' => (float) ($a['unit_price'] ?? 0),
-                            'qty'        => (float) ($a['qty'] ?? 1),
-                            'subtotal'   => (float) ($a['amount'] ?? 0),
-                        ];
-                    }, $itemsRaw));
-                }
+                $label = Str::title(Carbon::parse($rp . '-01')->translatedFormat('F Y'));
             } catch (\Throwable $e) {
-                $items = [];
+                $label = $rp;
             }
 
-            $serviceItems = $items;
+            $serviceItems[] = [
+                'name'       => ($isAnnual ? 'Suscripción anual ' : 'Mensualidad ') . $label,
+                'unit_price' => $saldoRow,
+                'qty'        => 1,
+                'subtotal'   => $saldoRow,
+                'period'     => $rp,
+            ];
 
-            if ($currentPeriodDue <= 0.00001) {
-                $currentPeriodDue = $this->resolveCurrentStatementDueForPdf($accountId, $period);
-                $totalDue = round($prevBalance + $currentPeriodDue, 2);
+            if ($rp === $period) {
+                $currentPeriodDue += $saldoRow;
+            } else {
+                $prevBalance += $saldoRow;
+                $prevPeriod = $rp;
+                $prevPeriodLabel = $label;
             }
         }
 
-        $cargo = round((float) ($row['total_cargo'] ?? ($row['charge'] ?? 0)), 2);
-        $abono = round((float) ($row['total_abono'] ?? ($row['paid_amount'] ?? 0)), 2);
+        $prevBalance = round($prevBalance, 2);
+        $currentPeriodDue = round($currentPeriodDue, 2);
+        $totalDue = round($prevBalance + $currentPeriodDue, 2);
+
+        $cargo = 0.0;
+        foreach (['total_cargo', 'charge', 'cargo', 'total'] as $k) {
+            if (isset($row[$k]) && is_numeric($row[$k])) {
+                $cargo = round(max(0.0, (float) $row[$k]), 2);
+                break;
+            }
+        }
+
+        $abono = 0.0;
+        foreach (['total_abono', 'paid_amount', 'abono', 'paid'] as $k) {
+            if (isset($row[$k]) && is_numeric($row[$k])) {
+                $abono = round(max(0.0, (float) $row[$k]), 2);
+                break;
+            }
+        }
 
         $data = [
             'account_id' => $accountId,
@@ -2106,28 +2098,31 @@ final class AccountBillingController extends Controller
                 ? 'Suscripción anual Pactopia360'
                 : 'Suscripción mensual Pactopia360',
 
-            'cargo'               => $cargo,
-            'abono'               => $abono,
-            'saldo'               => $currentPeriodDue,
-            'current_period_due'  => $currentPeriodDue,
+            'cargo'              => $cargo,
+            'abono'              => $abono,
+            'saldo'              => $currentPeriodDue,
+            'current_period_due' => $currentPeriodDue,
 
-            'prev_period'         => $prevPeriod,
-            'prev_period_label'   => $prevPeriodLabel,
-            'prev_balance'        => $prevBalance,
+            'prev_period'       => $prevPeriod,
+            'prev_period_label' => $prevPeriodLabel,
+            'prev_balance'      => $prevBalance,
 
-            'total_due'           => $totalDue,
-            'total'               => $totalDue,
+            'total_due' => $totalDue,
+            'total'     => $totalDue,
 
-            'generated_at'        => now(),
+            'generated_at' => now(),
         ];
 
         $payUrl = '';
+
         try {
-            $payUrl = URL::temporarySignedRoute(
-                'cliente.billing.publicPay',
-                now()->addMinutes(30),
-                ['accountId' => $accountId, 'period' => $period]
-            );
+            if ($totalDue > 0.00001) {
+                $payUrl = URL::temporarySignedRoute(
+                    'cliente.billing.publicPay',
+                    now()->addMinutes(30),
+                    ['accountId' => $accountId, 'period' => $period]
+                );
+            }
         } catch (\Throwable $e) {
             $payUrl = '';
         }
@@ -2155,6 +2150,7 @@ final class AccountBillingController extends Controller
                 'period'     => $period,
                 'err'        => $e->getMessage(),
             ]);
+
             abort(500, 'PDF engine no disponible.');
         }
 

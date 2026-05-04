@@ -75,6 +75,14 @@
         ->values()
         ->all();
 
+    $routeInvoiceProfileSave = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.invoice_profile.save')
+        ? 'admin.billing.statements_v2.invoice_profile.save'
+        : null;
+
+    $routeInvoiceRequestGenerate = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.invoice_request.generate')
+        ? 'admin.billing.statements_v2.invoice_request.generate'
+        : null;
+
     $kpiTotalStatements = $statements->count();
 
     $kpiPaidCount = $statements->filter(function ($statement) {
@@ -166,6 +174,8 @@
     data-bsv2-email-send-route-name="{{ $routeSendStore ?? '' }}"
     data-bsv2-download-route-name="{{ $routeDownload ?? '' }}"
     data-bsv2-commercial-agreement-route-name="{{ $routeCommercialAgreementSave ?? '' }}"
+    data-bsv2-invoice-profile-route-name="{{ $routeInvoiceProfileSave ?? '' }}"
+    data-bsv2-invoice-request-route-name="{{ $routeInvoiceRequestGenerate ?? '' }}"
     data-bsv2-bulk-send-url="{{ $routeBulkSend }}"
     data-bsv2-advance-payments-url="{{ $routeAdvancePayments }}"
     data-bsv2-bulk-payments-url="{{ $routeBulkPayments }}"
@@ -951,6 +961,49 @@
                                                                 </span>
                                                                 <span>Acuerdo comercial</span>
                                                             </button>
+
+                                                            <button
+                                                                type="button"
+                                                                class="bsv2-actions-menu__item bsv2-actions-menu__item--icon {{ $routeInvoiceProfileSave ? '' : 'is-disabled' }}"
+                                                                @if($routeInvoiceProfileSave)
+                                                                    data-bsv2-open-invoice-profile
+                                                                    data-account-id="{{ $statementAccountId }}"
+                                                                    data-period="{{ $statementPeriod }}"
+                                                                    data-client-name="{{ e($clientName) }}"
+                                                                    data-client-rfc="{{ e($clientRfc) }}"
+                                                                    data-client-email="{{ e($clientEmail) }}"
+                                                                    data-invoice-profile-url="{{ route($routeInvoiceProfileSave, ['accountId' => $statementAccountId]) }}"
+                                                                @endif
+                                                            >
+                                                                <span class="bsv2-actions-menu__icon" aria-hidden="true">
+                                                                    <svg viewBox="0 0 24 24" fill="none">
+                                                                        <path d="M6 3h9l3 3v15H6V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M15 3v4h4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M8.5 12h7M8.5 16h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                    </svg>
+                                                                </span>
+                                                                <span>Perfil fiscal PPD</span>
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                class="bsv2-actions-menu__item bsv2-actions-menu__item--icon {{ $routeInvoiceRequestGenerate ? '' : 'is-disabled' }}"
+                                                                @if($routeInvoiceRequestGenerate)
+                                                                    data-bsv2-generate-invoice-request
+                                                                    data-invoice-request-url="{{ route($routeInvoiceRequestGenerate, ['accountId' => $statementAccountId, 'period' => $statementPeriod]) }}"
+                                                                    data-client-name="{{ e($clientName) }}"
+                                                                    data-period-label="{{ e($periodLabel) }}"
+                                                                @endif
+                                                            >
+                                                                <span class="bsv2-actions-menu__icon" aria-hidden="true">
+                                                                    <svg viewBox="0 0 24 24" fill="none">
+                                                                        <path d="M4 5h10l6 6v8a2 2 0 0 1-2 2H4V5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M14 5v6h6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                                                        <path d="M8 15h7M8 18h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                                                    </svg>
+                                                                </span>
+                                                                <span>Generar solicitud PPD</span>
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1578,6 +1631,164 @@
                     <div class="bsv2-form__actions">
                         <button type="button" class="bsv2-btn bsv2-btn--ghost" data-bsv2-close-modal>Cancelar</button>
                         <button type="submit" class="bsv2-btn bsv2-btn--primary">Guardar acuerdo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+        {{-- MODAL · PERFIL FISCAL PPD --}}
+    <div class="bsv2-modal" id="bsv2-invoice-profile-modal" aria-hidden="true">
+        <div class="bsv2-modal__backdrop" data-bsv2-close-modal></div>
+
+        <div class="bsv2-modal__dialog bsv2-modal__dialog--xl" role="dialog" aria-modal="true" aria-labelledby="bsv2-invoice-profile-title">
+            <div class="bsv2-modal__head">
+                <div>
+                    <h3 class="bsv2-modal__title" id="bsv2-invoice-profile-title">Perfil fiscal PPD</h3>
+                    <p class="bsv2-modal__subtitle" id="bsv2-invoice-profile-subtitle">
+                        Configura clientes especiales que exigen factura PPD ligada al estado de cuenta.
+                    </p>
+                </div>
+
+                <button type="button" class="bsv2-modal__close" data-bsv2-close-modal aria-label="Cerrar">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6 18 18M18 6 6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="bsv2-modal__body">
+                <form method="POST" action="#" id="bsv2-invoice-profile-form" class="bsv2-form">
+                    @csrf
+
+                    <input type="hidden" name="account_id" id="bsv2-invoice-profile-account-id" value="">
+
+                    <div class="bsv2-form__grid bsv2-form__grid--summary">
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">Cliente</span>
+                            <strong class="bsv2-summary-card__value" id="bsv2-invoice-profile-client-name">—</strong>
+                        </div>
+
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">RFC</span>
+                            <strong class="bsv2-summary-card__value" id="bsv2-invoice-profile-client-rfc">—</strong>
+                        </div>
+
+                        <div class="bsv2-summary-card">
+                            <span class="bsv2-summary-card__label">Modo</span>
+                            <strong class="bsv2-summary-card__value">Factura PPD + estado de cuenta</strong>
+                        </div>
+                    </div>
+
+                    <div class="bsv2-form__grid">
+                        <div class="bsv2-field bsv2-field--full">
+                            <label class="bsv2-check bsv2-check--stack">
+                                <input type="checkbox" name="requires_invoice" id="bsv2-invoice-profile-requires" value="1" checked>
+                                <span class="bsv2-check__box"></span>
+                                <div class="bsv2-check__content">
+                                    <div class="bsv2-check__title">Este cliente requiere factura PPD</div>
+                                    <div class="bsv2-check__text">
+                                        Activa el flujo para generar solicitud de factura desde su estado de cuenta.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-rfc">RFC receptor</label>
+                            <input type="text" name="rfc" id="bsv2-invoice-profile-rfc" class="bsv2-control" maxlength="20">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-razon">Razón social</label>
+                            <input type="text" name="razon_social" id="bsv2-invoice-profile-razon" class="bsv2-control" maxlength="255">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-cp">Código postal fiscal</label>
+                            <input type="text" name="codigo_postal" id="bsv2-invoice-profile-cp" class="bsv2-control" maxlength="10">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-email">Correo fiscal principal</label>
+                            <input type="email" name="email" id="bsv2-invoice-profile-email" class="bsv2-control" maxlength="255">
+                        </div>
+
+                        <div class="bsv2-field bsv2-field--full">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-emails">Correos fiscales adicionales</label>
+                            <textarea name="emails" id="bsv2-invoice-profile-emails" class="bsv2-control bsv2-control--textarea bsv2-control--compact" rows="3" placeholder="correo1@empresa.com, correo2@empresa.com"></textarea>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-metodo">Método de pago</label>
+                            <select name="metodo_pago" id="bsv2-invoice-profile-metodo" class="bsv2-control">
+                                <option value="PPD" selected>PPD · Pago en parcialidades o diferido</option>
+                                <option value="PUE">PUE · Pago en una sola exhibición</option>
+                            </select>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-forma">Forma de pago</label>
+                            <input type="text" name="forma_pago" id="bsv2-invoice-profile-forma" class="bsv2-control" value="99" maxlength="10">
+                            <p class="bsv2-help">Para PPD normalmente se usa 99 · Por definir.</p>
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-uso">Uso CFDI</label>
+                            <input type="text" name="uso_cfdi" id="bsv2-invoice-profile-uso" class="bsv2-control" value="G03" maxlength="10">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-regimen">Régimen fiscal receptor</label>
+                            <input type="text" name="regimen_fiscal" id="bsv2-invoice-profile-regimen" class="bsv2-control" maxlength="10" placeholder="Ej. 601, 603, 612">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-schedule-day">Día programado de factura</label>
+                            <input type="number" min="1" max="31" name="schedule_day" id="bsv2-invoice-profile-schedule-day" class="bsv2-control" placeholder="Ej. 5">
+                        </div>
+
+                        <div class="bsv2-field">
+                            <label class="bsv2-label" for="bsv2-invoice-profile-schedule-time">Hora programada</label>
+                            <input type="time" name="schedule_time" id="bsv2-invoice-profile-schedule-time" class="bsv2-control" value="09:00">
+                        </div>
+
+                        <div class="bsv2-field bsv2-field--full">
+                            <label class="bsv2-check bsv2-check--stack">
+                                <input type="checkbox" name="auto_generate_request" id="bsv2-invoice-profile-auto-request" value="1" checked>
+                                <span class="bsv2-check__box"></span>
+                                <div class="bsv2-check__content">
+                                    <div class="bsv2-check__title">Generar solicitud automáticamente</div>
+                                    <div class="bsv2-check__text">Deja preparada la solicitud de factura del período desde el estado de cuenta.</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div class="bsv2-field bsv2-field--full">
+                            <label class="bsv2-check bsv2-check--stack">
+                                <input type="checkbox" name="send_statement_pdf" value="1" checked>
+                                <span class="bsv2-check__box"></span>
+                                <div class="bsv2-check__content">
+                                    <div class="bsv2-check__title">Enviar estado de cuenta junto con factura</div>
+                                    <div class="bsv2-check__text">El paquete fiscal incluirá estado de cuenta, PDF CFDI y XML CFDI.</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <input type="hidden" name="send_cfdi_pdf" value="1">
+                        <input type="hidden" name="send_cfdi_xml" value="1">
+                        <input type="hidden" name="send_pactopia_pdf" value="1">
+                        <input type="hidden" name="status" value="active">
+                    </div>
+
+                    <div class="bsv2-field">
+                        <label class="bsv2-label" for="bsv2-invoice-profile-notes">Notas fiscales internas</label>
+                        <textarea name="notes" id="bsv2-invoice-profile-notes" class="bsv2-control bsv2-control--textarea" rows="4" placeholder="Requisitos del cliente, correos, uso CFDI confirmado, condiciones especiales..."></textarea>
+                    </div>
+
+                    <div class="bsv2-form__actions">
+                        <button type="button" class="bsv2-btn bsv2-btn--ghost" data-bsv2-close-modal>Cancelar</button>
+                        <button type="submit" class="bsv2-btn bsv2-btn--primary">Guardar perfil fiscal</button>
                     </div>
                 </form>
             </div>

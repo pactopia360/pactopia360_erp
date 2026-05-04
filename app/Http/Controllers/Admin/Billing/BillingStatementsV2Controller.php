@@ -25,7 +25,7 @@ use Throwable;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use App\Models\Admin\Billing\BillingStatementItem;
-
+use App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller;
 
 final class BillingStatementsV2Controller extends Controller
 {
@@ -2485,5 +2485,375 @@ private function insertStatementEmailLog(array $row): int
     return (int) DB::connection($this->adm)
         ->table('billing_email_logs')
         ->insertGetId($insert);
+}
+
+public function saveInvoiceProfile(Request $request, string $accountId): JsonResponse
+{
+    $accountId = trim($accountId);
+
+    if ($accountId === '') {
+        return response()->json([
+            'ok' => false,
+            'message' => 'La cuenta es inválida.',
+        ], 422);
+    }
+
+    if (!Schema::connection($this->adm)->hasTable('billing_invoice_profiles')) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No existe la tabla billing_invoice_profiles. Corre migraciones.',
+        ], 422);
+    }
+
+    $validated = $request->validate([
+        'requires_invoice'       => ['nullable', 'boolean'],
+        'auto_generate_request'  => ['nullable', 'boolean'],
+        'auto_stamp'             => ['nullable', 'boolean'],
+        'auto_send'              => ['nullable', 'boolean'],
+        'metodo_pago'            => ['nullable', 'string', 'max:10'],
+        'forma_pago'             => ['nullable', 'string', 'max:10'],
+        'uso_cfdi'               => ['nullable', 'string', 'max:10'],
+        'regimen_fiscal'         => ['nullable', 'string', 'max:10'],
+        'rfc'                    => ['nullable', 'string', 'max:20'],
+        'razon_social'           => ['nullable', 'string', 'max:255'],
+        'codigo_postal'          => ['nullable', 'string', 'max:10'],
+        'email'                  => ['nullable', 'string', 'max:255'],
+        'emails'                 => ['nullable', 'string', 'max:4000'],
+        'schedule_day'           => ['nullable', 'integer', 'min:1', 'max:31'],
+        'schedule_time'          => ['nullable', 'string', 'max:8'],
+        'effective_from'         => ['nullable', 'date'],
+        'effective_until'        => ['nullable', 'date', 'after_or_equal:effective_from'],
+        'send_statement_pdf'     => ['nullable', 'boolean'],
+        'send_cfdi_pdf'          => ['nullable', 'boolean'],
+        'send_cfdi_xml'          => ['nullable', 'boolean'],
+        'send_pactopia_pdf'      => ['nullable', 'boolean'],
+        'status'                 => ['nullable', 'string', 'in:active,inactive'],
+        'notes'                  => ['nullable', 'string', 'max:5000'],
+    ]);
+
+    $cliente = $this->findClienteForStatementAccount($accountId);
+
+    if (!$cliente instanceof CuentaCliente) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se encontró la cuenta del cliente.',
+        ], 404);
+    }
+
+    $resolvedAccountId = $this->resolvePrimaryStatementAccountIdForCliente($cliente);
+    if ($resolvedAccountId === '') {
+        $resolvedAccountId = $accountId;
+    }
+
+    $owner = $cliente->owner;
+    $clientName = $this->resolveClientDisplayName($cliente, $owner);
+    $clientEmail = $this->resolveClientEmail($cliente, $owner);
+    $clientRfc = strtoupper(trim((string) ($cliente->rfc_padre ?? '')));
+
+    $emails = $this->normalizeRecipientList((string) ($validated['emails'] ?? ''));
+    $mainEmail = strtolower(trim((string) ($validated['email'] ?? $clientEmail)));
+
+    if ($mainEmail !== '' && filter_var($mainEmail, FILTER_VALIDATE_EMAIL)) {
+        $emails[] = $mainEmail;
+    }
+
+    $emails = array_values(array_unique($emails));
+
+    $now = now();
+    $adminId = auth('admin')->id();
+
+    $payload = [
+        'account_id'            => $resolvedAccountId,
+        'admin_account_id'      => $cliente->admin_account_id !== null ? (int) $cliente->admin_account_id : null,
+        'client_uuid'           => (string) $cliente->id,
+
+        'requires_invoice'      => !empty($validated['requires_invoice']) ? 1 : 0,
+        'auto_generate_request' => !empty($validated['auto_generate_request']) ? 1 : 0,
+        'auto_stamp'            => !empty($validated['auto_stamp']) ? 1 : 0,
+        'auto_send'             => !empty($validated['auto_send']) ? 1 : 0,
+
+        'invoice_mode'          => 'ppd_statement',
+        'tipo_comprobante'      => 'I',
+        'metodo_pago'           => strtoupper(trim((string) ($validated['metodo_pago'] ?? 'PPD'))) ?: 'PPD',
+        'forma_pago'            => trim((string) ($validated['forma_pago'] ?? '99')) ?: '99',
+        'uso_cfdi'              => trim((string) ($validated['uso_cfdi'] ?? 'G03')) ?: null,
+        'regimen_fiscal'        => trim((string) ($validated['regimen_fiscal'] ?? '')) ?: null,
+
+        'rfc'                   => strtoupper(trim((string) ($validated['rfc'] ?? $clientRfc))) ?: null,
+        'razon_social'          => trim((string) ($validated['razon_social'] ?? $clientName)) ?: null,
+        'codigo_postal'         => trim((string) ($validated['codigo_postal'] ?? '')) ?: null,
+        'email'                 => $mainEmail !== '' ? $mainEmail : null,
+        'emails'                => !empty($emails) ? json_encode($emails, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+
+        'schedule_day'          => isset($validated['schedule_day']) ? (int) $validated['schedule_day'] : null,
+        'schedule_time'         => trim((string) ($validated['schedule_time'] ?? '09:00')) ?: null,
+        'effective_from'        => !empty($validated['effective_from']) ? (string) $validated['effective_from'] : null,
+        'effective_until'       => !empty($validated['effective_until']) ? (string) $validated['effective_until'] : null,
+
+        'send_statement_pdf'    => array_key_exists('send_statement_pdf', $validated) ? ((bool) $validated['send_statement_pdf'] ? 1 : 0) : 1,
+        'send_cfdi_pdf'         => array_key_exists('send_cfdi_pdf', $validated) ? ((bool) $validated['send_cfdi_pdf'] ? 1 : 0) : 1,
+        'send_cfdi_xml'         => array_key_exists('send_cfdi_xml', $validated) ? ((bool) $validated['send_cfdi_xml'] ? 1 : 0) : 1,
+        'send_pactopia_pdf'     => array_key_exists('send_pactopia_pdf', $validated) ? ((bool) $validated['send_pactopia_pdf'] ? 1 : 0) : 1,
+
+        'status'                => (string) ($validated['status'] ?? 'active'),
+        'notes'                 => trim((string) ($validated['notes'] ?? '')) ?: null,
+        'meta'                  => json_encode([
+            'source' => 'admin_statements_v2',
+            'updated_from' => 'saveInvoiceProfile',
+            'updated_at' => $now->toDateTimeString(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+
+        'updated_by_admin_id'   => $adminId,
+        'updated_at'            => $now,
+    ];
+
+    $existing = DB::connection($this->adm)
+        ->table('billing_invoice_profiles')
+        ->where('account_id', $resolvedAccountId)
+        ->first();
+
+    if ($existing) {
+        DB::connection($this->adm)
+            ->table('billing_invoice_profiles')
+            ->where('id', (int) $existing->id)
+            ->update($payload);
+
+        $profileId = (int) $existing->id;
+    } else {
+        $payload['created_by_admin_id'] = $adminId;
+        $payload['created_at'] = $now;
+
+        $profileId = (int) DB::connection($this->adm)
+            ->table('billing_invoice_profiles')
+            ->insertGetId($payload);
+    }
+
+    return response()->json([
+        'ok' => true,
+        'message' => 'Perfil fiscal PPD guardado correctamente.',
+        'profile_id' => $profileId,
+        'account_id' => $resolvedAccountId,
+    ]);
+}
+
+public function generateInvoiceRequest(Request $request, string $accountId, string $period): JsonResponse
+{
+    $accountId = trim($accountId);
+    $period = trim($period);
+
+    if ($accountId === '' || !$this->isValidPeriod($period)) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'Cuenta o período inválido.',
+        ], 422);
+    }
+
+    if (!Schema::connection($this->adm)->hasTable('billing_invoice_requests')) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No existe la tabla billing_invoice_requests.',
+        ], 422);
+    }
+
+    $statement = BillingStatement::query()
+        ->where('account_id', $accountId)
+        ->where('period', $period)
+        ->orderByDesc('updated_at')
+        ->orderByDesc('id')
+        ->first();
+
+    if (!$statement instanceof BillingStatement) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'Estado de cuenta no encontrado.',
+        ], 404);
+    }
+
+    if ((float) ($statement->total_cargo ?? 0) <= 0.00001) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'El estado de cuenta no tiene monto facturable.',
+        ], 422);
+    }
+
+    $cliente = $this->findClienteForStatementAccount($accountId);
+
+    if (!$cliente instanceof CuentaCliente) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No se encontró el cliente ligado al estado de cuenta.',
+        ], 404);
+    }
+
+    $profile = Schema::connection($this->adm)->hasTable('billing_invoice_profiles')
+        ? DB::connection($this->adm)
+            ->table('billing_invoice_profiles')
+            ->where('account_id', $accountId)
+            ->where('status', 'active')
+            ->first()
+        : null;
+
+    $owner = $cliente->owner;
+    $clientName = $this->resolveClientDisplayName($cliente, $owner);
+    $clientEmail = $this->resolveClientEmail($cliente, $owner);
+    $clientRfc = strtoupper(trim((string) ($cliente->rfc_padre ?? '')));
+
+    $metodoPago = strtoupper(trim((string) ($profile->metodo_pago ?? 'PPD'))) ?: 'PPD';
+    $formaPago = trim((string) ($profile->forma_pago ?? '99')) ?: '99';
+    $usoCfdi = trim((string) ($profile->uso_cfdi ?? 'G03')) ?: 'G03';
+    $regimenFiscal = trim((string) ($profile->regimen_fiscal ?? ''));
+
+    $now = now();
+    $adminId = auth('admin')->id();
+
+    $existing = DB::connection($this->adm)
+        ->table('billing_invoice_requests')
+        ->where('account_id', $accountId)
+        ->where('period', $period)
+        ->first();
+
+    $meta = [
+        'source' => 'statements_v2_generate_invoice_request',
+        'generated_from' => 'billing_statements',
+        'statement_id' => (int) $statement->id,
+        'client_uuid' => (string) $cliente->id,
+        'admin_account_id' => $cliente->admin_account_id !== null ? (string) $cliente->admin_account_id : null,
+        'client_name' => $clientName,
+        'client_email' => $clientEmail,
+        'client_rfc' => $clientRfc,
+        'amount' => round((float) ($statement->total_cargo ?? 0), 2),
+        'saldo' => round((float) ($statement->saldo ?? 0), 2),
+        'generated_at' => $now->toDateTimeString(),
+        'generated_by' => $adminId,
+    ];
+
+    $payload = [
+        'account_id' => $accountId,
+        'period' => $period,
+        'statement_id' => (int) $statement->id,
+        'invoice_profile_id' => $profile ? (int) $profile->id : null,
+        'status' => 'requested',
+        'tipo_comprobante' => 'I',
+        'metodo_pago' => $metodoPago,
+        'forma_pago' => $formaPago,
+        'uso_cfdi' => $usoCfdi,
+        'regimen_fiscal' => $regimenFiscal !== '' ? $regimenFiscal : null,
+        'scheduled_for' => $this->resolveInvoiceScheduledDateFromProfile($profile, $period),
+        'scheduled_at' => null,
+        'last_error' => null,
+        'attempts' => 0,
+        'send_statement_pdf' => $profile ? (int) ($profile->send_statement_pdf ?? 1) : 1,
+        'send_cfdi_pdf' => $profile ? (int) ($profile->send_cfdi_pdf ?? 1) : 1,
+        'send_cfdi_xml' => $profile ? (int) ($profile->send_cfdi_xml ?? 1) : 1,
+        'notes' => 'Solicitud generada desde estado de cuenta V2 para facturación PPD.',
+        'meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'updated_at' => $now,
+    ];
+
+    if ($existing) {
+        DB::connection($this->adm)
+            ->table('billing_invoice_requests')
+            ->where('id', (int) $existing->id)
+            ->update($payload);
+
+        $requestId = (int) $existing->id;
+        $action = 'updated';
+    } else {
+        $payload['created_at'] = $now;
+
+        $requestId = (int) DB::connection($this->adm)
+            ->table('billing_invoice_requests')
+            ->insertGetId($payload);
+
+        $action = 'created';
+    }
+
+    $statementMeta = $statement->meta;
+    if ($statementMeta instanceof \stdClass) {
+        $statementMeta = (array) $statementMeta;
+    }
+    if (!is_array($statementMeta)) {
+        $statementMeta = [];
+    }
+
+    $statementMeta['invoice_request'] = [
+        'id' => $requestId,
+        'status' => 'requested',
+        'metodo_pago' => $metodoPago,
+        'forma_pago' => $formaPago,
+        'uso_cfdi' => $usoCfdi,
+        'generated_at' => $now->toDateTimeString(),
+        'generated_by' => $adminId,
+    ];
+
+    $statement->meta = $statementMeta;
+    $statement->save();
+
+    return response()->json([
+        'ok' => true,
+        'action' => $action,
+        'message' => $action === 'created'
+            ? 'Solicitud de factura PPD generada correctamente.'
+            : 'Solicitud de factura PPD actualizada correctamente.',
+        'request_id' => $requestId,
+        'account_id' => $accountId,
+        'period' => $period,
+    ]);
+}
+
+private function findClienteForStatementAccount(string $accountId): ?CuentaCliente
+{
+    $accountId = trim($accountId);
+
+    if ($accountId === '') {
+        return null;
+    }
+
+    return CuentaCliente::query()
+        ->with(['owner'])
+        ->select($this->resolveCuentaClienteSelectColumns())
+        ->where(function ($query) use ($accountId) {
+            $query->where('id', $accountId);
+
+            if ($this->cuentaClienteHasColumn('admin_account_id')) {
+                $query->orWhere('admin_account_id', $accountId);
+            }
+        })
+        ->first();
+}
+
+private function resolvePrimaryStatementAccountIdForCliente(CuentaCliente $cliente): string
+{
+    $ids = $this->resolveStatementAccountIdsForCliente($cliente);
+
+    if (!empty($ids)) {
+        return (string) $ids[0];
+    }
+
+    return (string) $cliente->id;
+}
+
+private function resolveInvoiceScheduledDateFromProfile(?object $profile, string $period): ?string
+{
+    if (!$this->isValidPeriod($period)) {
+        return null;
+    }
+
+    $scheduleDay = $profile && isset($profile->schedule_day)
+        ? (int) $profile->schedule_day
+        : null;
+
+    if ($scheduleDay === null || $scheduleDay < 1 || $scheduleDay > 31) {
+        return null;
+    }
+
+    try {
+        $start = Carbon::createFromFormat('Y-m-d', $period . '-01')->startOfMonth();
+        $day = min($scheduleDay, (int) $start->copy()->endOfMonth()->day);
+
+        return $start->copy()->day($day)->toDateString();
+    } catch (\Throwable $e) {
+        return null;
+    }
 }
 }

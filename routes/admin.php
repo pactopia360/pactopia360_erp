@@ -897,6 +897,27 @@ Route::middleware([
                 ->middleware($thrAdminPosts)
                 ->name('commercial_agreement.save');
 
+                        $statementsV2InvoiceProfile = Route::post(
+                '{accountId}/invoice-profile',
+                [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'saveInvoiceProfile']
+            )
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('invoice_profile.save');
+
+            $statementsV2InvoiceRequest = Route::post(
+                '{accountId}/{period}/invoice-request',
+                [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'generateInvoiceRequest']
+            )
+                ->where([
+                    'accountId' => '[A-Za-z0-9\-]+',
+                    'period'    => '\d{4}-(0[1-9]|1[0-2])',
+                ])
+                ->middleware($thrAdminPosts)
+                ->name('invoice_request.generate');
+
             Route::get('{accountId}/{period}/preview', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'preview'])
                 ->where([
                     'accountId' => '[A-Za-z0-9\-]+',
@@ -943,6 +964,8 @@ Route::middleware([
                     $statementsV2StatusUpdate,
                     $statementsV2EmailSend,
                     $statementsV2GenerateCutoff,
+                    $statementsV2InvoiceProfile,
+                    $statementsV2InvoiceRequest,
                 ] as $rt) {
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }

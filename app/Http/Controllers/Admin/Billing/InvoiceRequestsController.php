@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Illuminate\Support\Facades\Route;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
@@ -473,6 +475,7 @@ final class InvoiceRequestsController extends Controller
             }
 
             $billingData = $this->resolveBillingDataForAccount($account, $accountId);
+            $billingData = $this->mergeBillingDataFromInvoiceRequest($billingData, $row);
 
             Log::info('[BILLING][INVOICE_REQ] Billing data resolved', [
                 'request_id'   => $id,
@@ -824,6 +827,11 @@ final class InvoiceRequestsController extends Controller
 
         $hasPdf  = $pdfPath !== '' && Storage::disk($pdfDisk)->exists($pdfPath);
         $hasXml  = $xmlPath !== '' && Storage::disk($xmlDisk)->exists($xmlPath);
+        $statementPdf = $this->resolveStatementPdfAttachmentForInvoiceRequest($row);
+        $hasStatementPdf = $statementPdf !== null;
+
+        $pactopiaPdf = $this->resolvePactopiaPdfAttachmentForInvoice($invoice);
+        $hasPactopiaPdf = $pactopiaPdf !== null;
 
         // Compat con vista existente
         $bodyHtml = view('admin.mail.invoice_ready_simple', [
@@ -836,12 +844,14 @@ final class InvoiceRequestsController extends Controller
             'hasPdf'    => $hasPdf,
             'hasXml'    => $hasXml,
             'emails'    => $destinations,
+            'hasStatementPdf' => $hasStatementPdf,
+            'hasPactopiaPdf' => $hasPactopiaPdf,
         ])->render();
 
         try {
             $allRecipients = $destinations;
 
-            Mail::send([], [], function ($m) use ($allRecipients, $subject, $bodyHtml, $hasPdf, $pdfDisk, $pdfPath, $pdfName, $hasXml, $xmlDisk, $xmlPath, $xmlName) {
+            Mail::send([], [], function ($m) use ($allRecipients, $subject, $bodyHtml, $hasPdf, $pdfDisk, $pdfPath, $pdfName, $hasXml, $xmlDisk, $xmlPath, $xmlName, $statementPdf, $pactopiaPdf) {
                 $recipients = array_values($allRecipients);
                 $primary = array_shift($recipients);
 
@@ -871,6 +881,18 @@ final class InvoiceRequestsController extends Controller
                         ]);
                         @fclose($stream);
                     }
+                }
+
+                if ($statementPdf !== null) {
+                    $m->attachData($statementPdf['content'], $statementPdf['name'], [
+                        'mime' => 'application/pdf',
+                    ]);
+                }
+
+                if ($pactopiaPdf !== null) {
+                    $m->attachData($pactopiaPdf['content'], $pactopiaPdf['name'], [
+                        'mime' => 'application/pdf',
+                    ]);
                 }
             });
 
@@ -2308,7 +2330,14 @@ final class InvoiceRequestsController extends Controller
             'account_id'   => $accountId,
             'period'       => $period,
             'request_id'   => $requestId,
+            'statement_id' => (int) ($statement->id ?? ($requestRow->statement_id ?? 0)) ?: null,
+            'invoice_profile_id' => isset($requestRow->invoice_profile_id) ? ((int) $requestRow->invoice_profile_id ?: null) : null,
             'source'       => 'facturotopia_' . $this->ftMode,
+            'tipo_comprobante' => (string) ($requestRow->tipo_comprobante ?? 'I'),
+            'metodo_pago'  => (string) ($billingData['metodo_pago'] ?? ($requestRow->metodo_pago ?? 'PPD')),
+            'forma_pago'   => (string) ($billingData['forma_pago'] ?? ($requestRow->forma_pago ?? '99')),
+            'uso_cfdi'     => (string) ($billingData['uso_cfdi'] ?? ($requestRow->uso_cfdi ?? 'G03')),
+            'regimen_fiscal' => (string) ($billingData['regimen_fiscal'] ?? ($requestRow->regimen_fiscal ?? '')),
             'cfdi_uuid'    => $uuid !== '' ? $uuid : null,
             'rfc'          => (string) ($billingData['rfc'] ?? ($account->rfc ?? '')),
             'razon_social' => (string) ($billingData['razon_social'] ?? ($account->razon_social ?? ($account->name ?? ''))),
@@ -2343,6 +2372,13 @@ final class InvoiceRequestsController extends Controller
         }
 
         $saved = $this->upsertBillingInvoice($payload, $requestRow, $uuid !== '' ? $uuid : null);
+
+        $this->generateAndAttachPactopiaPdf((int) $saved->id, $requestRow, $statement, $billingData);
+
+        $saved = DB::connection($this->adm)
+            ->table('billing_invoices')
+            ->where('id', (int) $saved->id)
+            ->first();
 
         return (array) $saved;
     }
@@ -2525,6 +2561,346 @@ final class InvoiceRequestsController extends Controller
         } catch (Throwable $e) {
         }
 
+        if (
+            Schema::connection($this->adm)->hasTable('billing_invoice_profiles')
+            && !empty($row->invoice_profile_id)
+        ) {
+            $profile = DB::connection($this->adm)
+                ->table('billing_invoice_profiles')
+                ->where('id', (int) $row->invoice_profile_id)
+                ->first();
+
+            if ($profile) {
+                foreach ([
+                    $profile->email ?? null,
+                    $profile->emails ?? null,
+                ] as $raw) {
+                    if (is_string($raw) && trim($raw) !== '') {
+                        $decoded = json_decode($raw, true);
+
+                        if (is_array($decoded)) {
+                            foreach ($decoded as $mail) {
+                                $mail = strtolower(trim((string) $mail));
+                                if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                                    $all[] = $mail;
+                                }
+                            }
+                        } else {
+                            foreach (preg_split('/[;,]+/', $raw) ?: [] as $mail) {
+                                $mail = strtolower(trim((string) $mail));
+                                if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                                    $all[] = $mail;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         return array_values(array_unique(array_filter($all)));
     }
+
+    private function mergeBillingDataFromInvoiceRequest(array $billingData, object $row): array
+{
+    $profile = null;
+
+    if (
+        Schema::connection($this->adm)->hasTable('billing_invoice_profiles')
+        && !empty($row->invoice_profile_id)
+    ) {
+        $profile = DB::connection($this->adm)
+            ->table('billing_invoice_profiles')
+            ->where('id', (int) $row->invoice_profile_id)
+            ->first();
+    }
+
+    $pick = static function (...$values): string {
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    };
+
+    $emails = [];
+
+    foreach ([
+        $profile->emails ?? null,
+        $profile->email ?? null,
+        $billingData['emails'] ?? null,
+        $billingData['email'] ?? null,
+    ] as $raw) {
+        if (is_array($raw)) {
+            foreach ($raw as $mail) {
+                $mail = strtolower(trim((string) $mail));
+                if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                    $emails[] = $mail;
+                }
+            }
+            continue;
+        }
+
+        if (is_string($raw) && trim($raw) !== '') {
+            $decoded = json_decode($raw, true);
+
+            if (is_array($decoded)) {
+                foreach ($decoded as $mail) {
+                    $mail = strtolower(trim((string) $mail));
+                    if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                        $emails[] = $mail;
+                    }
+                }
+                continue;
+            }
+
+            foreach (preg_split('/[;,]+/', $raw) ?: [] as $mail) {
+                $mail = strtolower(trim((string) $mail));
+                if ($mail !== '' && filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+                    $emails[] = $mail;
+                }
+            }
+        }
+    }
+
+    $billingData['rfc'] = strtoupper($pick(
+        $profile->rfc ?? null,
+        $billingData['rfc'] ?? null
+    ));
+
+    $billingData['razon_social'] = $pick(
+        $profile->razon_social ?? null,
+        $billingData['razon_social'] ?? null
+    );
+
+    $billingData['codigo_postal'] = $pick(
+        $profile->codigo_postal ?? null,
+        $billingData['codigo_postal'] ?? null
+    );
+
+    $billingData['regimen_fiscal'] = $pick(
+        $row->regimen_fiscal ?? null,
+        $profile->regimen_fiscal ?? null,
+        $billingData['regimen_fiscal'] ?? null
+    );
+
+    $billingData['uso_cfdi'] = strtoupper($pick(
+        $row->uso_cfdi ?? null,
+        $profile->uso_cfdi ?? null,
+        $billingData['uso_cfdi'] ?? null,
+        'G03'
+    ));
+
+    $billingData['metodo_pago'] = strtoupper($pick(
+        $row->metodo_pago ?? null,
+        $profile->metodo_pago ?? null,
+        $billingData['metodo_pago'] ?? null,
+        'PPD'
+    ));
+
+    $billingData['forma_pago'] = strtoupper($pick(
+        $row->forma_pago ?? null,
+        $profile->forma_pago ?? null,
+        $billingData['forma_pago'] ?? null,
+        $billingData['metodo_pago'] === 'PPD' ? '99' : '03'
+    ));
+
+    $billingData['email'] = strtolower($pick(
+        $profile->email ?? null,
+        $billingData['email'] ?? null,
+        $emails[0] ?? null
+    ));
+
+    $billingData['emails'] = array_values(array_unique($emails));
+
+    return $billingData;
+}
+
+private function resolveStatementPdfAttachmentForInvoiceRequest(object $row): ?array
+{
+    $accountId = trim((string) ($row->account_id ?? ''));
+    $period = trim((string) ($row->period ?? ($row->periodo ?? '')));
+
+    if ($accountId === '' || $period === '') {
+        return null;
+    }
+
+    try {
+        if (Route::has('admin.billing.statements_v2.download')) {
+            $controller = app(BillingStatementsV2Controller::class);
+            $response = $controller->download($accountId, $period);
+
+            $content = method_exists($response, 'getContent')
+                ? (string) $response->getContent()
+                : '';
+
+            if ($content !== '') {
+                return [
+                    'name' => 'Estado_de_cuenta_' . $period . '_' . $accountId . '.pdf',
+                    'content' => $content,
+                ];
+            }
+        }
+
+        if (Route::has('admin.billing.statements.pdf')) {
+            $controller = app(BillingStatementsController::class);
+
+            $request = Request::create(
+                route('admin.billing.statements.pdf', [
+                    'accountId' => $accountId,
+                    'period' => $period,
+                ]),
+                'GET'
+            );
+
+            $response = $controller->pdf($request, $accountId, $period);
+
+            $content = method_exists($response, 'getContent')
+                ? (string) $response->getContent()
+                : '';
+
+            if ($content !== '') {
+                return [
+                    'name' => 'Estado_de_cuenta_' . $period . '_' . $accountId . '.pdf',
+                    'content' => $content,
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+        Log::warning('[BILLING][INVOICE_REQ] statement pdf attachment failed', [
+            'account_id' => $accountId,
+            'period' => $period,
+            'error' => $e->getMessage(),
+        ]);
+    }
+
+    return null;
+}
+
+private function generateAndAttachPactopiaPdf(int $invoiceId, object $requestRow, object $statement, array $billingData): void
+{
+    if ($invoiceId <= 0) {
+        return;
+    }
+
+    if (!Schema::connection($this->adm)->hasTable('billing_invoices')) {
+        return;
+    }
+
+    if (!view()->exists('admin.billing.invoicing.pdf.invoice_pactopia')) {
+        return;
+    }
+
+    $invoice = DB::connection($this->adm)
+        ->table('billing_invoices')
+        ->where('id', $invoiceId)
+        ->first();
+
+    if (!$invoice) {
+        return;
+    }
+
+    $period = trim((string) ($invoice->period ?? ($requestRow->period ?? ($requestRow->periodo ?? ''))));
+    $accountId = trim((string) ($invoice->account_id ?? ($requestRow->account_id ?? '')));
+
+    $items = collect();
+
+    if (
+        !empty($invoice->statement_id)
+        && Schema::connection($this->adm)->hasTable('billing_statement_items')
+    ) {
+        $items = DB::connection($this->adm)
+            ->table('billing_statement_items')
+            ->where('statement_id', (int) $invoice->statement_id)
+            ->orderBy('id')
+            ->get();
+    }
+
+    if ($items->isEmpty()) {
+        $items = collect([
+            (object) [
+                'description' => 'Servicios Pactopia360 · ' . ($period !== '' ? $period : 'Periodo facturado'),
+                'qty' => 1,
+                'unit_price' => (float) ($statement->total_cargo ?? 0),
+                'amount' => (float) ($statement->total_cargo ?? 0),
+            ],
+        ]);
+    }
+
+    $total = (float) ($invoice->amount_cents ?? 0) > 0
+        ? ((float) $invoice->amount_cents / 100)
+        : (float) ($statement->total_cargo ?? $items->sum('amount'));
+
+    $pdfBinary = Pdf::loadView('admin.billing.invoicing.pdf.invoice_pactopia', [
+        'invoice' => $invoice,
+        'requestRow' => $requestRow,
+        'statement' => $statement,
+        'billingData' => $billingData,
+        'items' => $items,
+        'period' => $period,
+        'total' => $total,
+    ])->setPaper('letter')->output();
+
+    if ($pdfBinary === '') {
+        return;
+    }
+
+    $disk = (string) ($invoice->disk ?? 'local');
+    $safeUuid = trim((string) ($invoice->cfdi_uuid ?? ''));
+    $tag = $safeUuid !== ''
+        ? preg_replace('/[^A-Za-z0-9\-]/', '', $safeUuid)
+        : ('invoice_' . $invoiceId);
+
+    $dir = 'billing/invoices/' . ($accountId !== '' ? $accountId : 'unknown') . '/' . ($period !== '' ? $period : now()->format('Y-m'));
+    $name = 'Pactopia360_Factura_' . ($period !== '' ? $period : now()->format('Y-m')) . '_' . $tag . '.pdf';
+    $path = $dir . '/' . $name;
+
+    Storage::disk($disk)->put($path, $pdfBinary);
+
+    $upd = [
+        'updated_at' => now(),
+    ];
+
+    if (Schema::connection($this->adm)->hasColumn('billing_invoices', 'pactopia_pdf_path')) {
+        $upd['pactopia_pdf_path'] = $path;
+    }
+
+    if (Schema::connection($this->adm)->hasColumn('billing_invoices', 'pactopia_pdf_name')) {
+        $upd['pactopia_pdf_name'] = $name;
+    }
+
+    DB::connection($this->adm)
+        ->table('billing_invoices')
+        ->where('id', $invoiceId)
+        ->update($upd);
+}
+
+private function resolvePactopiaPdfAttachmentForInvoice(object $invoice): ?array
+{
+    $disk = (string) ($invoice->disk ?? 'local');
+    $path = trim((string) ($invoice->pactopia_pdf_path ?? ''));
+    $name = trim((string) ($invoice->pactopia_pdf_name ?? ''));
+
+    if ($path === '') {
+        return null;
+    }
+
+    if (!Storage::disk($disk)->exists($path)) {
+        return null;
+    }
+
+    $content = Storage::disk($disk)->get($path);
+
+    if ($content === '') {
+        return null;
+    }
+
+    return [
+        'name' => $name !== '' ? $name : basename($path),
+        'content' => $content,
+    ];
+}
 }
