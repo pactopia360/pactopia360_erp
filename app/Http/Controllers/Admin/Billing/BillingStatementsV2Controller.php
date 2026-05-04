@@ -1728,6 +1728,22 @@ protected function isValidStatementPeriod(string $period): bool
             ? $this->resolveClientEmail($cliente, $owner)
             : '';
 
+        if ($clientEmail === '' && ctype_digit($accountId) && Schema::connection($this->adm)->hasTable('accounts')) {
+            try {
+                $fallbackEmail = DB::connection($this->adm)
+                    ->table('accounts')
+                    ->where('id', (int) $accountId)
+                    ->value('email');
+
+                $fallbackEmail = strtolower(trim((string) $fallbackEmail));
+
+                if ($fallbackEmail !== '' && filter_var($fallbackEmail, FILTER_VALIDATE_EMAIL)) {
+                    $clientEmail = $fallbackEmail;
+                }
+            } catch (\Throwable $e) {
+                //
+            }
+        }
         return (object) [
             'account_id'    => $accountId,
             'period'        => $period,
@@ -1794,12 +1810,33 @@ protected function isValidStatementPeriod(string $period): bool
      */
     private function resolveDefaultRecipientsForStatement(object $statement): array
     {
-        $email = trim((string) ($statement->client_email ?? ''));
-        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return [$email];
+        $emails = [];
+
+        $clientEmail = strtolower(trim((string) ($statement->client_email ?? '')));
+        if ($clientEmail !== '' && filter_var($clientEmail, FILTER_VALIDATE_EMAIL)) {
+            $emails[] = $clientEmail;
         }
 
-        return [];
+        $accountId = trim((string) ($statement->account_id ?? ''));
+
+        if ($accountId !== '' && ctype_digit($accountId) && Schema::connection($this->adm)->hasTable('accounts')) {
+            try {
+                $accountEmail = DB::connection($this->adm)
+                    ->table('accounts')
+                    ->where('id', (int) $accountId)
+                    ->value('email');
+
+                $accountEmail = strtolower(trim((string) $accountEmail));
+
+                if ($accountEmail !== '' && filter_var($accountEmail, FILTER_VALIDATE_EMAIL)) {
+                    $emails[] = $accountEmail;
+                }
+            } catch (\Throwable $e) {
+                //
+            }
+        }
+
+        return array_values(array_unique($emails));
     }
 
     private function renderEmailHtml(

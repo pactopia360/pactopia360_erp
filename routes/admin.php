@@ -870,6 +870,10 @@ Route::middleware([
         Route::prefix('statements-v2')->name('statements_v2.')->group(function () use ($thrAdminPosts, $isLocal) {
             Route::get('/', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'index'])
                 ->name('index');
+            
+            $statementsV2GenerateCutoff = Route::post('generate-cutoff', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'generateCutoff'])
+                ->middleware($thrAdminPosts)
+                ->name('generate_cutoff');
 
             $statementsV2BulkSend = Route::post('bulk/send', [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'sendBulk'])
                 ->middleware($thrAdminPosts)
@@ -938,6 +942,7 @@ Route::middleware([
                     $statementsV2CommercialAgreement,
                     $statementsV2StatusUpdate,
                     $statementsV2EmailSend,
+                    $statementsV2GenerateCutoff,
                 ] as $rt) {
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }
