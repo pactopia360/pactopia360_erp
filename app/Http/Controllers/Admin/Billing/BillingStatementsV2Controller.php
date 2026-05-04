@@ -832,106 +832,177 @@ final class BillingStatementsV2Controller extends Controller
     }
 
     public function sendBulk(Request $request): JsonResponse
-    {
-        $period = trim((string) $request->input('period', now()->format('Y-m')));
+{
+    $period = trim((string) $request->input('period', now()->format('Y-m')));
 
-        if (!$this->isValidPeriod($period)) {
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Periodo inválido.',
-            ], 422);
-        }
-
-        $this->generateCutoffRowsForPeriod($period, false);
-
-        $mode = strtolower(trim((string) $request->input('mode', 'visible')));
-
-        $selectedIds = collect((array) $request->input('selected_ids', []))
-            ->map(static fn ($value) => trim((string) $value))
-            ->filter()
-            ->unique()
-            ->values();
-
-        [$statements, $totalFiltered] = $this->resolveStatementsForFilters($request, false);
-
-        if ($mode === 'selected') {
-            $statements = $statements
-                ->filter(function (object $statement) use ($selectedIds) {
-                    $statementId = trim((string) ($statement->statement_id ?? $statement->id ?? ''));
-                    return $selectedIds->contains($statementId);
-                })
-                ->values();
-        }
-
-        $sent = 0;
-        $failed = 0;
-        $skipped = 0;
-
-        foreach ($statements as $statement) {
-            $accountId = trim((string) ($statement->account_id ?? ''));
-            $statementPeriod = trim((string) ($statement->period ?? ''));
-
-            if ($accountId === '' || !$this->isValidPeriod($statementPeriod)) {
-                $skipped++;
-                continue;
-            }
-
-            $statementRow = $this->findStatementRow($accountId, $statementPeriod);
-
-            if (!$statementRow) {
-                $skipped++;
-                continue;
-            }
-
-            $recipients = $this->resolveDefaultRecipientsForStatement($statementRow);
-
-            if (empty($recipients)) {
-                $skipped++;
-                continue;
-            }
-
-            $subject = $this->resolveEmailSubject($statementRow, $statementPeriod);
-            $message = $this->resolveEmailBody($statementRow, $statementPeriod);
-            $downloadUrl = $this->buildStatementDownloadUrl($accountId, $statementPeriod);
-            $previewUrl = $this->buildStatementPreviewUrl($accountId, $statementPeriod);
-
-            $html = $this->renderEmailHtml(
-                $statementRow,
-                $subject,
-                $message,
-                $downloadUrl !== '#' ? $downloadUrl : null,
-                $previewUrl !== '#' ? $previewUrl : null
-            );
-
-            try {
-                foreach ($recipients as $recipient) {
-                    Mail::html($html, function ($mailMessage) use ($recipient, $subject) {
-                        $mailMessage->to($recipient)->subject($subject);
-
-                        $bcc = $this->billingBccEmail();
-                        if ($bcc !== null) {
-                            $mailMessage->bcc($bcc);
-                        }
-                    });
-                }
-
-                $this->markStatementAsSentIfPossible($accountId, $statementPeriod);
-                $sent++;
-            } catch (\Throwable $e) {
-                $failed++;
-            }
-        }
-
+    if (!$this->isValidPeriod($period)) {
         return response()->json([
-            'ok'            => $failed === 0,
-            'mode'          => $mode,
-            'totalFiltered' => $totalFiltered,
-            'sent'          => $sent,
-            'skipped'       => $skipped,
-            'failed'        => $failed,
-            'message'       => "Envío terminado. Enviados: {$sent}. Omitidos: {$skipped}. Fallidos: {$failed}.",
-        ]);
+            'ok'      => false,
+            'message' => 'Periodo inválido.',
+        ], 422);
     }
+
+    $this->generateCutoffRowsForPeriod($period, false);
+
+    $mode = strtolower(trim((string) $request->input('mode', 'visible')));
+
+    $selectedIds = collect((array) $request->input('selected_ids', []))
+        ->map(static fn ($value) => trim((string) $value))
+        ->filter()
+        ->unique()
+        ->values();
+
+    [$statements, $totalFiltered] = $this->resolveStatementsForFilters($request, false);
+
+    if ($mode === 'selected') {
+        $statements = $statements
+            ->filter(function (object $statement) use ($selectedIds) {
+                $statementId = trim((string) ($statement->statement_id ?? $statement->id ?? ''));
+                return $selectedIds->contains($statementId);
+            })
+            ->values();
+    }
+
+    $sent = 0;
+    $failed = 0;
+    $skipped = 0;
+
+    foreach ($statements as $statement) {
+        $accountId = trim((string) ($statement->account_id ?? ''));
+        $statementPeriod = trim((string) ($statement->period ?? ''));
+
+        if ($accountId === '' || !$this->isValidPeriod($statementPeriod)) {
+            $skipped++;
+            continue;
+        }
+
+        $statementRow = $this->findStatementRow($accountId, $statementPeriod);
+
+        if (!$statementRow) {
+            $skipped++;
+            continue;
+        }
+
+        $recipients = $this->resolveDefaultRecipientsForStatement($statementRow);
+
+        if (empty($recipients)) {
+            $skipped++;
+            continue;
+        }
+
+        $subject = $this->resolveEmailSubject($statementRow, $statementPeriod);
+        $message = $this->resolveEmailBody($statementRow, $statementPeriod);
+        $downloadUrl = $this->buildStatementDownloadUrl($accountId, $statementPeriod);
+        $previewUrl = $this->buildStatementPreviewUrl($accountId, $statementPeriod);
+        $bcc = $this->billingBccEmail();
+
+        $html = $this->renderEmailHtml(
+            $statementRow,
+            $subject,
+            $message,
+            $downloadUrl !== '#' ? $downloadUrl : null,
+            $previewUrl !== '#' ? $previewUrl : null
+        );
+
+        try {
+            foreach ($recipients as $recipient) {
+                $emailId = (string) Str::ulid();
+
+                $payload = [
+                    'subject'      => $subject,
+                    'message'      => $message,
+                    'account_id'   => $accountId,
+                    'period'       => $statementPeriod,
+                    'period_label' => $statementRow->period_label ?? $statementPeriod,
+                    'client_name'  => $statementRow->client_name ?? 'Cliente',
+                    'client_email' => $recipient,
+                    'saldo'        => $statementRow->saldo ?? 0,
+                    'total_cargo'  => $statementRow->total_cargo ?? 0,
+                    'total_abono'  => $statementRow->total_abono ?? 0,
+                    'download_url' => $downloadUrl !== '#' ? $downloadUrl : null,
+                    'preview_url'  => $previewUrl !== '#' ? $previewUrl : null,
+                    'email_id'     => $emailId,
+                    'generated_at' => now()->toDateTimeString(),
+                ];
+
+                $logId = $this->insertStatementEmailLog([
+                    'email_id'     => $emailId,
+                    'account_id'   => $accountId,
+                    'period'       => $statementPeriod,
+                    'statement_id' => $statementRow->statement_id ?? null,
+                    'email'        => $recipient,
+                    'to_list'      => implode(',', $recipients),
+                    'subject'      => $subject,
+                    'status'       => 'queued',
+                    'payload'      => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'meta'         => json_encode([
+                        'source'      => 'statements_v2_bulk_send',
+                        'bcc_monitor' => $bcc,
+                        'sent_by'     => auth('admin')->id(),
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'queued_at'    => now(),
+                ]);
+
+                Mail::html($html, function ($mailMessage) use ($recipient, $subject, $bcc) {
+                    $mailMessage->to($recipient)->subject($subject);
+
+                    if ($bcc !== null) {
+                        $mailMessage->bcc($bcc);
+                    }
+                });
+
+                if ($logId > 0) {
+                    DB::connection($this->adm)
+                        ->table('billing_email_logs')
+                        ->where('id', $logId)
+                        ->update([
+                            'status'     => 'sent',
+                            'sent_at'    => now(),
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+
+            $this->markStatementAsSentIfPossible($accountId, $statementPeriod);
+            $sent++;
+        } catch (\Throwable $e) {
+            $failed++;
+
+            $this->insertStatementEmailLog([
+                'email_id'     => (string) Str::ulid(),
+                'account_id'   => $accountId,
+                'period'       => $statementPeriod,
+                'statement_id' => $statementRow->statement_id ?? null,
+                'email'        => implode(',', $recipients),
+                'to_list'      => implode(',', $recipients),
+                'subject'      => $subject,
+                'status'       => 'failed',
+                'payload'      => json_encode([
+                    'account_id' => $accountId,
+                    'period'     => $statementPeriod,
+                    'error'      => $e->getMessage(),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'meta'         => json_encode([
+                    'source'      => 'statements_v2_bulk_send',
+                    'bcc_monitor' => $bcc,
+                    'error'       => $e->getMessage(),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'queued_at'    => now(),
+                'failed_at'    => now(),
+            ]);
+        }
+    }
+
+    return response()->json([
+        'ok'            => $failed === 0,
+        'mode'          => $mode,
+        'totalFiltered' => $totalFiltered,
+        'sent'          => $sent,
+        'skipped'       => $skipped,
+        'failed'        => $failed,
+        'message'       => "Envío terminado. Enviados: {$sent}. Omitidos: {$skipped}. Fallidos: {$failed}.",
+    ]);
+}
     public function registerAdvancePayments(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -2314,5 +2385,105 @@ private function billingBccEmail(): ?string
     $email = strtolower(trim((string) config('p360.billing_bcc_email', 'notificaciones@pactopia.com')));
 
     return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null;
+}
+
+private function insertStatementEmailLog(array $row): int
+{
+    if (!Schema::connection($this->adm)->hasTable('billing_email_logs')) {
+        return 0;
+    }
+
+    $cols = array_map(
+        static fn ($column) => strtolower((string) $column),
+        Schema::connection($this->adm)->getColumnListing('billing_email_logs')
+    );
+
+    $has = static fn (string $column): bool => in_array(strtolower($column), $cols, true);
+
+    $insert = [];
+
+    if ($has('email_id')) {
+        $insert['email_id'] = (string) ($row['email_id'] ?? (string) Str::ulid());
+    }
+
+    if ($has('account_id')) {
+        $insert['account_id'] = (string) ($row['account_id'] ?? '');
+    }
+
+    if ($has('period')) {
+        $insert['period'] = (string) ($row['period'] ?? '');
+    }
+
+    if ($has('statement_id')) {
+        $insert['statement_id'] = $row['statement_id'] ?? null;
+    }
+
+    if ($has('email')) {
+        $insert['email'] = $row['email'] ?? null;
+    }
+
+    if ($has('to_list')) {
+        $insert['to_list'] = $row['to_list'] ?? null;
+    }
+
+    if ($has('subject')) {
+        $insert['subject'] = (string) ($row['subject'] ?? 'Pactopia360 · Estado de cuenta');
+    }
+
+    if ($has('template')) {
+        $insert['template'] = 'emails.admin.billing.statement_account_period';
+    }
+
+    if ($has('status')) {
+        $insert['status'] = (string) ($row['status'] ?? 'queued');
+    }
+
+    if ($has('provider')) {
+        $insert['provider'] = (string) (config('mail.default') ?: 'smtp');
+    }
+
+    if ($has('provider_message_id')) {
+        $insert['provider_message_id'] = $row['provider_message_id'] ?? null;
+    }
+
+    if ($has('payload')) {
+        $insert['payload'] = $row['payload'] ?? null;
+    }
+
+    if ($has('meta')) {
+        $insert['meta'] = $row['meta'] ?? null;
+    }
+
+    if ($has('queued_at')) {
+        $insert['queued_at'] = $row['queued_at'] ?? now();
+    }
+
+    if ($has('sent_at')) {
+        $insert['sent_at'] = $row['sent_at'] ?? null;
+    }
+
+    if ($has('failed_at')) {
+        $insert['failed_at'] = $row['failed_at'] ?? null;
+    }
+
+    if ($has('open_count')) {
+        $insert['open_count'] = (int) ($row['open_count'] ?? 0);
+    }
+
+    if ($has('click_count')) {
+        $insert['click_count'] = (int) ($row['click_count'] ?? 0);
+    }
+
+    if ($has('created_at')) {
+        $insert['created_at'] = now();
+    }
+
+    if ($has('updated_at')) {
+        $insert['updated_at'] = now();
+    }
+
+    return (int) DB::connection($this->adm)
+        ->table('billing_email_logs')
+        ->insertGetId($insert);
 }
 }
