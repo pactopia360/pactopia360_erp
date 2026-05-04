@@ -818,6 +818,11 @@ final class BillingStatementsV2Controller extends Controller
         foreach ($recipients as $recipient) {
             Mail::html($html, function ($mailMessage) use ($recipient, $subject) {
                 $mailMessage->to($recipient)->subject($subject);
+
+                $bcc = $this->billingBccEmail();
+                if ($bcc !== null) {
+                    $mailMessage->bcc($bcc);
+                }
             });
         }
 
@@ -902,6 +907,11 @@ final class BillingStatementsV2Controller extends Controller
                 foreach ($recipients as $recipient) {
                     Mail::html($html, function ($mailMessage) use ($recipient, $subject) {
                         $mailMessage->to($recipient)->subject($subject);
+
+                        $bcc = $this->billingBccEmail();
+                        if ($bcc !== null) {
+                            $mailMessage->bcc($bcc);
+                        }
                     });
                 }
 
@@ -2296,5 +2306,13 @@ HTML;
         'updated' => $updated,
         'skipped' => $skipped,
     ];
+}
+
+
+private function billingBccEmail(): ?string
+{
+    $email = strtolower(trim((string) env('P360_BILLING_BCC_EMAIL', 'notificaciones@pactipia.com')));
+
+    return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null;
 }
 }
