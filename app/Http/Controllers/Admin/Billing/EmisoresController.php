@@ -189,35 +189,8 @@ final class EmisoresController extends Controller
         $incomingExtId = trim((string) ($payload['ext_id'] ?? ''));
         $remoteId = $incomingExtId !== '' ? $incomingExtId : $existingExtId;
 
-        if ($remoteId === '') {
-            $remoteId = $this->resolveRemoteEmisorId(array_merge((array) $row, $payload));
-            if (in_array('ext_id', $this->columns(), true)) {
-                $payload['ext_id'] = $remoteId;
-            }
-        }
-
-        if ($facturotopia->isApiReady()) {
-            $mergedForRemote = array_merge((array) $row, $payload);
-            $remotePayload = $this->buildFacturotopiaEmisorPayload($mergedForRemote, $remoteId, false);
-
-            $remote = $facturotopia->updateEmisor($remoteId, $remotePayload);
-
-            if (!(bool) ($remote['ok'] ?? false) && $this->facturotopiaLooksLikeNotFound($remote)) {
-                $remote = $facturotopia->createEmisor($this->buildFacturotopiaEmisorPayload($mergedForRemote, $remoteId, true));
-            }
-
-            if (!(bool) ($remote['ok'] ?? false)) {
-                return back()->withErrors([
-                    'facturotopia' => 'No se pudo actualizar el emisor en Facturotopia: ' . (string) ($remote['message'] ?? 'Error desconocido.'),
-                ])->withInput();
-            }
-
-            $remoteData = (array) ($remote['data'] ?? []);
-            $remoteIdResolved = trim((string) ($remoteData['id'] ?? $remoteId));
-            if ($remoteIdResolved !== '' && in_array('ext_id', $this->columns(), true)) {
-                $payload['ext_id'] = $remoteIdResolved;
-                $remoteId = $remoteIdResolved;
-            }
+        if ($remoteId !== '' && in_array('ext_id', $this->columns(), true)) {
+            $payload['ext_id'] = $remoteId;
         }
 
         DB::connection($this->cli)
@@ -225,28 +198,9 @@ final class EmisoresController extends Controller
             ->where('id', $id)
             ->update($payload);
 
-        $fresh = DB::connection($this->cli)
-            ->table($this->table)
-            ->where('id', $id)
-            ->first();
-
-        if ($fresh && $facturotopia->isApiReady()) {
-            $sync = $this->syncSingleEmisorStatusOnly($fresh);
-            if (!($sync['ok'] ?? false)) {
-                return redirect()
-                    ->route('admin.billing.invoicing.emisores.index')
-                    ->withErrors([
-                        'facturotopia' => 'Emisor actualizado, pero falló el estado remoto: ' . (string) ($sync['message'] ?? 'Error desconocido.'),
-                    ])
-                    ->with('ok', 'Emisor actualizado correctamente.');
-            }
-        }
-
         return redirect()
             ->route('admin.billing.invoicing.emisores.index')
-            ->with('ok', $facturotopia->isApiReady()
-                ? 'Emisor actualizado y sincronizado con Facturotopia correctamente.'
-                : 'Emisor actualizado correctamente. Facturotopia no estaba configurado, así que solo se actualizó en local.');
+            ->with('ok', 'Emisor actualizado correctamente en local.');
     }
 
     public function destroy(int $id): RedirectResponse

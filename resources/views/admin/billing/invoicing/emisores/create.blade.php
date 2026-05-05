@@ -1,7 +1,8 @@
 @extends('layouts.admin')
 
 @section('title', 'Facturación · Nuevo emisor')
-@section('contentLayout', 'contained')
+@section('layout', 'full')
+@section('contentLayout', 'full')
 @section('pageClass', 'billing-emisores-create-page')
 
 @section('content')

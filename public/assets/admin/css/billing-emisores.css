@@ -1,0 +1,179 @@
+.billing-emisores-index-page .bsv2-table-wrap{
+    overflow-x:auto;
+}
+
+.billing-emisores-index-page .bsv2-table,
+.billing-emisores-index-page .bsv2-table--compact{
+    min-width:1180px;
+    table-layout:auto;
+}
+
+.billing-emisores-index-page .bsv2-table thead th,
+.billing-emisores-index-page .bsv2-table tbody td{
+    width:auto !important;
+    padding:14px 12px;
+    vertical-align:middle;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(1),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(1){
+    width:70px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(2),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(2){
+    width:300px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(3),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(3){
+    width:170px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(4),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(4){
+    width:220px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(5),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(5){
+    width:260px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(6),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(6){
+    width:150px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(7),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(7){
+    width:140px !important;
+}
+
+.billing-emisores-index-page .bsv2-table thead th:nth-child(8),
+.billing-emisores-index-page .bsv2-table tbody td:nth-child(8){
+    width:68px !important;
+}
+
+.billing-emisores-index-page .bsv2-client-cell{
+    min-width:0;
+}
+
+.billing-emisores-index-page .bsv2-client-name{
+    max-width:280px;
+    font-size:14px;
+    line-height:1.22;
+    margin-bottom:7px;
+    word-break:normal;
+    overflow-wrap:break-word;
+}
+
+.billing-emisores-index-page .bsv2-client-grid{
+    grid-template-columns:1fr;
+    gap:4px;
+}
+
+.billing-emisores-index-page .bsv2-client-meta{
+    display:flex;
+    gap:6px;
+    align-items:flex-start;
+    font-size:10px;
+    line-height:1.35;
+    word-break:normal;
+    overflow-wrap:anywhere;
+}
+
+.billing-emisores-index-page .bsv2-client-meta span{
+    flex:0 0 auto;
+    min-width:auto;
+    white-space:nowrap;
+}
+
+.billing-emisores-index-page .bsv2-status{
+    min-width:96px;
+}
+
+.billing-emisores-index-page .bsv2-actions{
+    justify-content:flex-end;
+}
+
+@media (max-width:1199px){
+    .billing-emisores-index-page .bsv2-table thead{
+        display:table-header-group;
+    }
+
+    .billing-emisores-index-page .bsv2-table,
+    .billing-emisores-index-page .bsv2-table tbody,
+    .billing-emisores-index-page .bsv2-table tr,
+    .billing-emisores-index-page .bsv2-table td{
+        display:revert;
+    }
+
+    .billing-emisores-index-page .bsv2-table tbody tr{
+        display:table-row;
+        padding:0;
+        border-bottom:0;
+    }
+
+    .billing-emisores-index-page .bsv2-table tbody td{
+        display:table-cell;
+        background:var(--bsv2-card) !important;
+        border-bottom:1px solid var(--bsv2-border);
+    }
+}
+
+.billing-emisores-index-page > ul,
+.billing-emisores-index-page > ol,
+.billing-emisores-index-page .content > ul,
+.billing-emisores-index-page .content > ol{
+    display:none !important;
+}
+
+.be-alert-card{
+    margin:0;
+}
+
+.be-alert-stack{
+    display:grid;
+    gap:10px;
+    padding:14px;
+}
+
+.be-alert{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    padding:13px 15px;
+    border-radius:16px;
+    border:1px solid var(--bsv2-border);
+    font-size:12px;
+    line-height:1.45;
+    font-weight:800;
+}
+
+.be-alert strong{
+    flex:0 0 auto;
+    font-weight:950;
+}
+
+.be-alert span{
+    color:inherit;
+}
+
+.be-alert--success{
+    background:var(--bsv2-success-bg);
+    border-color:var(--bsv2-success-border);
+    color:var(--bsv2-success-text);
+}
+
+.be-alert--warning{
+    background:var(--bsv2-warning-bg);
+    border-color:var(--bsv2-warning-border);
+    color:var(--bsv2-warning-text);
+}
+
+.be-alert--danger{
+    background:var(--bsv2-danger-bg);
+    border-color:var(--bsv2-danger-border);
+    color:var(--bsv2-danger-text);
+}
