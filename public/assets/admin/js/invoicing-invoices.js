@@ -1221,6 +1221,91 @@
         });
     });
 
+    function setWizardStep(step) {
+    const panes = qsa('[data-step-pane]');
+    if (!panes.length) return;
+
+    const total = panes.length;
+    const nextStep = Math.max(1, Math.min(total, parseInt(step, 10) || 1));
+
+    currentWizardStep = nextStep;
+
+    panes.forEach((pane) => {
+        const paneStep = parseInt(pane.getAttribute('data-step-pane') || '1', 10) || 1;
+        pane.classList.toggle('is-active', paneStep === nextStep);
+    });
+
+    qsa('.invx-stepdot').forEach((dot) => {
+        const dotStep = parseInt(dot.getAttribute('data-step-target') || '1', 10) || 1;
+        dot.classList.toggle('is-active', dotStep === nextStep);
+        dot.classList.toggle('is-done', dotStep < nextStep);
+    });
+
+    const currentStepLabel = qs('#invxCurrentStepLabel');
+    const hiddenStep = qs('#invx_wizard_step');
+    const prevBtn = qs('#invxPrevStep');
+    const nextBtn = qs('#invxNextStep');
+    const submitBtn = qs('#invxSubmitCreateInvoice');
+    const navTitle = qs('#invxNavTitle');
+    const navSub = qs('#invxNavSub');
+
+    if (currentStepLabel) currentStepLabel.textContent = String(nextStep);
+    if (hiddenStep) hiddenStep.value = String(nextStep);
+
+    if (prevBtn) prevBtn.disabled = nextStep <= 1;
+    if (nextBtn) nextBtn.classList.toggle('invx-hidden', nextStep >= total);
+    if (submitBtn) submitBtn.classList.toggle('invx-hidden', nextStep < total);
+
+    if (navTitle) navTitle.textContent = 'Paso ' + nextStep + ' · ' + (stepLabelMap[nextStep] || 'facturación');
+    if (navSub) navSub.textContent = getWizardStepHelp(nextStep);
+
+    syncFloatingStates();
+    syncWizardSummary();
+    syncPpdUiState();
+    syncAiHints();
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function getWizardStepHelp(step) {
+    const map = {
+        1: 'Selecciona el tipo de comprobante y arranca el flujo.',
+        2: 'Decide si usarás XML como base o si vas a omitir este paso.',
+        3: 'Captura cuenta, periodo, monto y fecha base de la factura.',
+        4: 'Busca y selecciona las partes fiscales.',
+        5: 'Completa configuración fiscal y revisa método/forma de pago.',
+        6: 'Carga PDF o XML para registrar la factura.',
+        7: 'Valida el resumen antes de generar la factura.'
+    };
+
+    return map[step] || 'Continúa con el flujo de facturación.';
+}
+
+function bindWizardSteps() {
+    const prevBtn = qs('#invxPrevStep');
+    const nextBtn = qs('#invxNextStep');
+
+    if (prevBtn) {
+        prevBtn.addEventListener('click', function () {
+            setWizardStep(currentWizardStep - 1);
+        });
+    }
+
+    if (nextBtn) {
+        nextBtn.addEventListener('click', function () {
+            setWizardStep(currentWizardStep + 1);
+        });
+    }
+
+    qsa('.invx-stepdot[data-step-target]').forEach((btn) => {
+        btn.addEventListener('click', function () {
+            setWizardStep(this.getAttribute('data-step-target'));
+        });
+    });
+
+    setWizardStep(1);
+}
+
     function bootstrapDefaults() {
         if (periodInput && !periodInput.value) {
             const now = new Date();
@@ -1243,6 +1328,7 @@
         bindTipoButtons();
         bindWizardWatchers();
         bindAssistButtons();
+        bindWizardSteps();
         bootstrapDefaults();
         syncSelection();
         syncFloatingStates();

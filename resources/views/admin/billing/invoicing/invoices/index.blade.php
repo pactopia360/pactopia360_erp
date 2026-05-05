@@ -2,6 +2,7 @@
 @extends('layouts.admin')
 
 @section('title', 'Facturación · Facturas emitidas')
+@section('layout', 'full')
 @section('contentLayout', 'full')
 @section('pageClass', 'billing-invoices-index-page billing-invoices-index-page--compact')
 
@@ -126,207 +127,347 @@
     $currentDateTo   = request('date_to', now()->format('Y-m-d'));
 @endphp
 
+@php
+    $bsv2CssPath = public_path('assets/admin/css/billing-statements-v2.css');
+    $beCssPath   = public_path('assets/admin/css/billing-emisores.css');
+    $invxCssPath = public_path('assets/admin/css/invoicing-invoices.css');
+    $bsv2JsPath  = public_path('assets/admin/js/billing-statements-v2.js');
+
+    $bsv2CssVer = is_file($bsv2CssPath) ? filemtime($bsv2CssPath) : time();
+    $beCssVer   = is_file($beCssPath) ? filemtime($beCssPath) : time();
+    $invxCssVer = is_file($invxCssPath) ? filemtime($invxCssPath) : time();
+    $bsv2JsVer  = is_file($bsv2JsPath) ? filemtime($bsv2JsPath) : time();
+@endphp
+
 @push('styles')
-<link rel="stylesheet" href="{{ asset('assets/admin/css/invoicing-invoices.css') }}?v={{ @filemtime(public_path('assets/admin/css/invoicing-invoices.css')) ?: time() }}">
+<link rel="stylesheet" href="{{ asset('assets/admin/css/billing-statements-v2.css') }}?v={{ $bsv2CssVer }}">
+<link rel="stylesheet" href="{{ asset('assets/admin/css/billing-emisores.css') }}?v={{ $beCssVer }}">
+<link rel="stylesheet" href="{{ asset('assets/admin/css/invoicing-invoices.css') }}?v={{ $invxCssVer }}">
+<style>
+.billing-invoices-bsv2-page .bsv2-list-card,
+.billing-invoices-bsv2-page .bsv2-list-card__content,
+.billing-invoices-bsv2-page .invx-table-card,
+.billing-invoices-bsv2-page .invx-table-wrap{
+    overflow: visible !important;
+}
+
+.billing-invoices-bsv2-page .invx-table-card{
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 16px 34px rgba(15, 23, 42, .06);
+}
+
+.billing-invoices-bsv2-page .invx-table-wrap{
+    width: 100%;
+    max-width: 100%;
+}
+
+.billing-invoices-bsv2-page .invx-table{
+    width: 100%;
+    table-layout: auto;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.billing-invoices-bsv2-page .invx-table th,
+.billing-invoices-bsv2-page .invx-table td{
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.billing-invoices-bsv2-page .invx-table th:nth-child(3),
+.billing-invoices-bsv2-page .invx-table td:nth-child(3),
+.billing-invoices-bsv2-page .invx-table th:nth-child(4),
+.billing-invoices-bsv2-page .invx-table td:nth-child(4){
+    white-space: normal;
+    min-width: 220px;
+}
+
+.billing-invoices-bsv2-page .invx-table th:last-child,
+.billing-invoices-bsv2-page .invx-table td:last-child{
+    width: 120px;
+    text-align: right;
+    position: relative;
+    overflow: visible !important;
+}
+
+.billing-invoices-bsv2-page [data-floating-label]{
+    position: relative;
+    overflow: visible !important;
+}
+
+.billing-invoices-bsv2-page [data-floating-label]::after{
+    content: attr(data-floating-label);
+    position: absolute;
+    right: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(50%) translateY(4px);
+    z-index: 99999;
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+    background: #0f172a;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 8px 10px;
+    border-radius: 999px;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, .24);
+    transition: .16s ease;
+}
+
+.billing-invoices-bsv2-page [data-floating-label]::before{
+    content: "";
+    position: absolute;
+    right: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(50%) translateY(4px);
+    z-index: 99999;
+    opacity: 0;
+    pointer-events: none;
+    border: 6px solid transparent;
+    border-top-color: #0f172a;
+    transition: .16s ease;
+}
+
+.billing-invoices-bsv2-page [data-floating-label]:hover::after,
+.billing-invoices-bsv2-page [data-floating-label]:focus-visible::after,
+.billing-invoices-bsv2-page [data-floating-label]:hover::before,
+.billing-invoices-bsv2-page [data-floating-label]:focus-visible::before{
+    opacity: 1;
+    transform: translateX(50%) translateY(0);
+}
+
+@media (max-width: 1100px){
+    .billing-invoices-bsv2-page .invx-table-wrap{
+        overflow-x: auto !important;
+        overflow-y: visible !important;
+    }
+
+    .billing-invoices-bsv2-page .invx-table{
+        min-width: 980px;
+    }
+}
+
+.billing-invoices-bsv2-page [data-floating-label]::before,
+.billing-invoices-bsv2-page [data-floating-label]::after{
+    display: none !important;
+}
+
+.p360-fixed-tooltip{
+    position: fixed;
+    z-index: 2147483647;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -8px);
+    background: #0f172a;
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: 0 16px 34px rgba(15, 23, 42, .28);
+    transition: opacity .12s ease, transform .12s ease;
+}
+
+.p360-fixed-tooltip.is-visible{
+    opacity: 1;
+    transform: translate(-50%, -14px);
+}
+</style>
 @endpush
 
 @section('content')
-<div class="invx-page invx-page--compact" id="invxPage">
+<div class="bsv2-page billing-invoices-bsv2-page" data-bsv2-root id="invxPage">
+    <div class="bsv2-wrap">
+        <section class="bsv2-header-clean" aria-label="Encabezado de facturas emitidas">
+            <div class="bsv2-header-clean__content">
+                <div class="bsv2-header-clean__text">
+                    <h1 class="bsv2-title">Facturas emitidas</h1>
+                    <p class="bsv2-subtitle">
+                        Emisión, timbrado, envío, cancelación y seguimiento de CFDI desde administración.
+                    </p>
+                </div>
 
-    <section class="invx-topbar-card">
-        <div class="invx-topbar-card__left">
-            <div class="invx-mini-badge">
-                <span class="invx-mini-badge__dot"></span>
-                Facturación
-            </div>
+                <div class="bsv2-header-clean__meta">
+                    <div class="bsv2-kpi">
+                        <span class="bsv2-kpi__label">Total</span>
+                        <strong class="bsv2-kpi__value">{{ number_format($totalRows) }}</strong>
+                    </div>
 
-            <div class="invx-title-wrap">
-                <h1 class="invx-title invx-title--compact">Facturas emitidas</h1>
-            </div>
-        </div>
-
-        <div class="invx-topbar-card__right">
-            <a href="{{ $routeDashboard }}" class="invx-iconbtn invx-iconbtn--toolbar" data-invx-tip="Panel">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M4 13h6V4H4v9Zm10 7h6V11h-6v9ZM4 20h6v-3H4v3Zm10-13h6V4h-6v3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                </svg>
-            </a>
-
-            <a href="{{ $routeRequests }}" class="invx-iconbtn invx-iconbtn--toolbar" data-invx-tip="Solicitudes">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                </svg>
-            </a>
-
-            <a href="{{ $routeCreate }}" class="invx-btn invx-btn--primary invx-btn--sm" data-invx-tip="Nueva factura">
-                <span class="invx-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                Nueva factura
-            </a>
-
-            <button type="button" class="invx-btn invx-btn--soft invx-btn--sm" data-invx-drawer-open="bulkDrawer">
-                <span class="invx-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </span>
-            </button>
-
-            <button type="button" class="invx-btn invx-btn--success invx-btn--sm" data-invx-modal-open="bulkSendModal">
-                <span class="invx-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </span>
-            </button>
-        </div>
-    </section>
-
-    <section class="invx-unified-strip">
-        <div class="invx-unified-strip__ai">
-            @include('admin.billing.invoicing.invoices.partials._ai_panel')
-        </div>
-
-        <div class="invx-unified-strip__kpis">
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Visibles">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.8"/>
-                        <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ number_format($totalRows) }}</strong>
-            </article>
-
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Monto visible">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M12 3v18M16.5 7.5c0-1.9-1.8-3.5-4.5-3.5S7.5 5.1 7.5 7c0 4.5 9 2.5 9 7 0 1.9-1.8 4-4.5 4S7.5 16.4 7.5 14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ $money($totalAmount) }}</strong>
-            </article>
-
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Timbradas">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M7 5h10v5H7zM7 13h10v6H7z" stroke="currentColor" stroke-width="1.8"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ number_format($stampedCount) }}</strong>
-            </article>
-
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Pagadas">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <path d="M4 7h16v10H4z" stroke="currentColor" stroke-width="1.8"/>
-                        <path d="M4 11h16" stroke="currentColor" stroke-width="1.8"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ number_format($paidCount) }}</strong>
-            </article>
-
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Pendientes">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/>
-                        <path d="M12 8v4l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ number_format($pendingCount) }}</strong>
-            </article>
-
-            <article class="invx-kpi-mini invx-kpi-mini--micro" data-invx-tip="Canceladas">
-                <span class="invx-kpi-mini__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/>
-                        <path d="M8 8l8 8M16 8l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                <strong class="invx-kpi-mini__value">{{ number_format($cancelledCount) }}</strong>
-            </article>
-        </div>
-    </section>
-
-    <section class="invx-filter-card">
-        <div class="invx-filter-card__head">
-            <div class="invx-filter-title-wrap">
-                <h2 class="invx-section-title">Filtros</h2>
-
-                <div class="invx-inline-chips">
-                    <button type="button" class="invx-smart-chip invx-js-set-filter" data-target="status" data-value="stamped">Timbradas</button>
-                    <button type="button" class="invx-smart-chip invx-js-set-filter" data-target="status" data-value="pending">Pendientes</button>
-                    <button type="button" class="invx-smart-chip invx-js-set-filter" data-target="status" data-value="paid">Pagadas</button>
-                    <button type="button" class="invx-smart-chip invx-js-fill-current-period">Actual</button>
+                    <div class="bsv2-kpi">
+                        <span class="bsv2-kpi__label">Visible</span>
+                        <strong class="bsv2-kpi__value">{{ $money($totalAmount) }}</strong>
+                    </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <form method="GET" action="{{ $routeIndex }}" class="invx-filters invx-filters--compact">
-            <div class="invx-field invx-field--span-4">
-                <div class="invx-floating">
-                    <input id="q" type="text" name="q" class="invx-input" value="{{ $q }}" placeholder=" ">
-                    <label for="q">Buscar UUID, RFC, cliente, folio...</label>
-                    <span class="invx-floating__icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none">
-                            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
-                            <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                        </svg>
+        <section class="bsv2-list-card bsv2-list-card--accordion" aria-label="Resumen de facturas">
+            <div class="bsv2-list-card__accordion">
+                <button
+                    type="button"
+                    class="bsv2-list-card__summary"
+                    id="bsv2-kpis-toggle"
+                    aria-expanded="false"
+                    aria-controls="bsv2-kpis-content"
+                >
+                    <span class="bsv2-list-card__summary-main">
+                        <span class="bsv2-list-card__summary-title">Resumen</span>
+                        <span class="bsv2-list-card__summary-meta">Estado fiscal, pagos, documentos y operación</span>
                     </span>
-                </div>
-            </div>
 
-            <div class="invx-field invx-field--span-2">
-                <div class="invx-floating">
-                    <select id="status" name="status" class="invx-input invx-input--select invx-has-value">
-                        <option value="">Todos</option>
-                        @foreach (['draft','pending','generated','stamped','issued','active','sent','paid','cancelled','error'] as $opt)
-                            <option value="{{ $opt }}" @selected($status === $opt)>{{ $statusLabel($opt) }}</option>
-                        @endforeach
-                    </select>
-                    <label for="status">Estado</label>
-                </div>
-            </div>
+                    <span class="bsv2-list-card__summary-action" aria-hidden="true">
+                        <span class="bsv2-list-card__summary-icon bsv2-list-card__summary-icon--plus">+</span>
+                        <span class="bsv2-list-card__summary-icon bsv2-list-card__summary-icon--minus">−</span>
+                    </span>
+                </button>
 
-            <div class="invx-field invx-field--span-2">
-                <div class="invx-floating">
-                    <input id="period" type="text" name="period" class="invx-input" value="{{ $period }}" placeholder=" ">
-                    <label for="period">Periodo</label>
-                </div>
-            </div>
+                <div class="bsv2-list-card__content" id="bsv2-kpis-content" hidden>
+                    <div class="bsv2-kpi-strip">
+                        <article class="bsv2-kpi-card">
+                            <span class="bsv2-kpi-card__label">Registros</span>
+                            <strong class="bsv2-kpi-card__value">{{ number_format($totalRows) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Resultado actual</span>
+                        </article>
 
-            <div class="invx-field invx-field--span-2">
-                <div class="invx-floating">
-                    <input id="date_from" type="date" name="date_from" class="invx-input invx-has-value" value="{{ $currentDateFrom }}">
-                    <label for="date_from">Desde</label>
-                </div>
-            </div>
+                        <article class="bsv2-kpi-card is-paid">
+                            <span class="bsv2-kpi-card__label">Timbradas</span>
+                            <strong class="bsv2-kpi-card__value">{{ number_format($stampedCount) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Con UUID</span>
+                        </article>
 
-            <div class="invx-field invx-field--span-2">
-                <div class="invx-floating">
-                    <input id="date_to" type="date" name="date_to" class="invx-input invx-has-value" value="{{ $currentDateTo }}">
-                    <label for="date_to">Hasta</label>
-                </div>
-            </div>
+                        <article class="bsv2-kpi-card is-pending">
+                            <span class="bsv2-kpi-card__label">Pendientes</span>
+                            <strong class="bsv2-kpi-card__value">{{ number_format($pendingCount) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Por atender</span>
+                        </article>
 
-            <div class="invx-field invx-field--span-12">
-                <div class="invx-filter-actions invx-filter-actions--compact">
-                    <div class="invx-chipbar">
-                        <span class="invx-chip"><b>{{ $status !== '' ? $statusLabel($status) : 'Todos' }}</b></span>
-                        <span class="invx-chip"><b>{{ $period !== '' ? $period : 'Todos los periodos' }}</b></span>
-                    </div>
+                        <article class="bsv2-kpi-card is-partial">
+                            <span class="bsv2-kpi-card__label">Pagadas</span>
+                            <strong class="bsv2-kpi-card__value">{{ number_format($paidCount) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Cobradas</span>
+                        </article>
 
-                    <div class="invx-btnbar">
-                        <button type="submit" class="invx-btn invx-btn--primary invx-btn--sm">Aplicar</button>
-                        <a href="{{ $routeIndex }}" class="invx-btn invx-btn--soft invx-btn--sm">Limpiar</a>
+                        <article class="bsv2-kpi-card is-overdue">
+                            <span class="bsv2-kpi-card__label">Canceladas</span>
+                            <strong class="bsv2-kpi-card__value">{{ number_format($cancelledCount) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Sin efecto</span>
+                        </article>
+
+                        <article class="bsv2-kpi-card">
+                            <span class="bsv2-kpi-card__label">Monto</span>
+                            <strong class="bsv2-kpi-card__value">{{ $money($totalAmount) }}</strong>
+                            <span class="bsv2-kpi-card__meta">Visible</span>
+                        </article>
                     </div>
                 </div>
             </div>
-        </form>
-    </section>
+        </section>
+
+        <section class="bsv2-list-card bsv2-list-card--accordion" aria-label="Filtros de facturas">
+            <div class="bsv2-list-card__accordion">
+                <button
+                    type="button"
+                    class="bsv2-list-card__summary"
+                    id="bsv2-filters-toggle"
+                    aria-expanded="false"
+                    aria-controls="bsv2-filters-content"
+                >
+                    <span class="bsv2-list-card__summary-main">
+                        <span class="bsv2-list-card__summary-title">Filtros</span>
+                        <span class="bsv2-list-card__summary-meta">Búsqueda, emisión, envío y navegación</span>
+                    </span>
+
+                    <span class="bsv2-list-card__summary-action" aria-hidden="true">
+                        <span class="bsv2-list-card__summary-icon bsv2-list-card__summary-icon--plus">+</span>
+                        <span class="bsv2-list-card__summary-icon bsv2-list-card__summary-icon--minus">−</span>
+                    </span>
+                </button>
+
+                <div class="bsv2-list-card__content" id="bsv2-filters-content" hidden>
+                    <form method="GET" action="{{ $routeIndex }}" class="bsv2-filters-form" id="bsv2-filters-form">
+                        <div class="bsv2-filters-grid">
+                            <div class="bsv2-filter-item bsv2-filter-item--search">
+                                <label class="bsv2-filter-label" for="q">Buscar</label>
+                                <div class="bsv2-filter-control-wrap">
+                                    <span class="bsv2-filter-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" fill="none">
+                                            <circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.8"/>
+                                            <path d="M20 20l-4.2-4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        name="q"
+                                        id="q"
+                                        class="bsv2-filter-control bsv2-filter-control--with-icon"
+                                        value="{{ $q }}"
+                                        placeholder="UUID, RFC, cliente, folio, cuenta..."
+                                    >
+                                </div>
+                            </div>
+
+                            <div class="bsv2-filter-item">
+                                <label class="bsv2-filter-label" for="status">Estado</label>
+                                <select id="status" name="status" class="bsv2-filter-control">
+                                    <option value="">Todos</option>
+                                    @foreach (['draft','pending','generated','stamped','issued','active','sent','paid','cancelled','error'] as $opt)
+                                        <option value="{{ $opt }}" @selected($status === $opt)>{{ $statusLabel($opt) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="bsv2-filter-item">
+                                <label class="bsv2-filter-label" for="period">Periodo</label>
+                                <input id="period" type="text" name="period" class="bsv2-filter-control" value="{{ $period }}" placeholder="2026-05">
+                            </div>
+                        </div>
+
+                        <div class="bsv2-bulk-toolbar">
+                            <div class="bsv2-bulk-toolbar__group">
+                                <div class="bsv2-bulk-chip">
+                                    <span class="bsv2-bulk-chip__label">Estado</span>
+                                    <strong class="bsv2-bulk-chip__value">{{ $status !== '' ? $statusLabel($status) : 'Todos' }}</strong>
+                                </div>
+
+                                <div class="bsv2-bulk-chip">
+                                    <span class="bsv2-bulk-chip__label">Periodo</span>
+                                    <strong class="bsv2-bulk-chip__value">{{ $period !== '' ? $period : 'Todos' }}</strong>
+                                </div>
+                            </div>
+
+                            <div class="bsv2-bulk-toolbar__group bsv2-bulk-toolbar__group--actions">
+                                <button type="submit" class="bsv2-btn bsv2-btn--primary bsv2-btn--icon-only" data-floating-label="Filtrar" aria-label="Filtrar">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">✓</span>
+                                </button>
+
+                                <a href="{{ $routeIndex }}" class="bsv2-btn bsv2-btn--ghost bsv2-btn--icon-only" data-floating-label="Limpiar" aria-label="Limpiar">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">↻</span>
+                                </a>
+
+                                <a href="{{ $routeDashboard }}" class="bsv2-btn bsv2-btn--soft bsv2-btn--icon-only" data-floating-label="Dashboard" aria-label="Dashboard">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">▦</span>
+                                </a>
+
+                                <a href="{{ $routeRequests }}" class="bsv2-btn bsv2-btn--soft bsv2-btn--icon-only" data-floating-label="Solicitudes" aria-label="Solicitudes">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">☰</span>
+                                </a>
+
+                                <a href="{{ $routeCreate }}" class="bsv2-btn bsv2-btn--primary bsv2-btn--icon-only" data-floating-label="Nueva factura" aria-label="Nueva factura">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">+</span>
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
 
     @if (session('ok'))
         <div class="invx-alert invx-alert--success">{{ session('ok') }}</div>
@@ -733,6 +874,7 @@
             </div>
         @endif
     </section>
+    </div>
 </div>
 
 @include('admin.billing.invoicing.invoices.partials._bulk_drawer', [
@@ -766,8 +908,64 @@ window.__INVX_SEARCH_RECEPTORES__ = @json($routeSearchReceptores);
 @endsection
 
 @push('scripts')
+<script src="{{ asset('assets/admin/js/billing-statements-v2.js') }}?v={{ $bsv2JsVer }}"></script>
 <script src="{{ asset('assets/admin/js/invoicing-invoices.js') }}?v={{ @filemtime(public_path('assets/admin/js/invoicing-invoices.js')) ?: time() }}"></script>
 <script>
 window.__INVX_AUTO_OPEN_SINGLE__ = false;
+
+document.addEventListener('DOMContentLoaded', function () {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'p360-fixed-tooltip';
+    document.body.appendChild(tooltip);
+
+    let activeEl = null;
+
+    function getLabel(el) {
+        return el.getAttribute('data-floating-label') || el.getAttribute('data-invx-tip') || el.getAttribute('aria-label') || '';
+    }
+
+    function showTooltip(el) {
+        const label = getLabel(el);
+        if (!label) return;
+
+        activeEl = el;
+        tooltip.textContent = label;
+
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + (rect.width / 2);
+        const y = rect.top - 8;
+
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+        tooltip.classList.add('is-visible');
+    }
+
+    function hideTooltip() {
+        activeEl = null;
+        tooltip.classList.remove('is-visible');
+    }
+
+    function refreshTooltip() {
+        if (!activeEl) return;
+        showTooltip(activeEl);
+    }
+
+    document.querySelectorAll('[data-floating-label], [data-invx-tip]').forEach(function (el) {
+        el.addEventListener('mouseenter', function () {
+            showTooltip(el);
+        });
+
+        el.addEventListener('focus', function () {
+            showTooltip(el);
+        });
+
+        el.addEventListener('mouseleave', hideTooltip);
+        el.addEventListener('blur', hideTooltip);
+    });
+
+    window.addEventListener('scroll', refreshTooltip, true);
+    window.addEventListener('resize', refreshTooltip);
+});
 </script>
+
 @endpush
