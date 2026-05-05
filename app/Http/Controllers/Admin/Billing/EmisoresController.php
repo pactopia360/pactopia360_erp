@@ -573,10 +573,75 @@ final class EmisoresController extends Controller
             'csd_vigencia_hasta.date' => 'La vigencia CSD debe ser una fecha válida.',
         ]);
 
+        $data = $this->mergeCertificateUploadsIntoData($request, $data);
+
         $this->validateJsonFields($data);
 
         return $data;
     }
+
+    private function mergeCertificateUploadsIntoData(Request $request, array $data): array
+{
+    $certificados = [];
+
+    $raw = trim((string) ($data['certificados_json'] ?? ''));
+
+    if ($raw !== '') {
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            if (is_array($decoded)) {
+                $certificados = $decoded;
+            }
+        } catch (Throwable $e) {
+            $certificados = [];
+        }
+    }
+
+    $fileMap = [
+        'csd_cer_file'  => 'csd_cer',
+        'csd_key_file'  => 'csd_key',
+        'fiel_cer_file' => 'fiel_cer',
+        'fiel_key_file' => 'fiel_key',
+    ];
+
+    foreach ($fileMap as $input => $jsonKey) {
+        if (!$request->hasFile($input)) {
+            continue;
+        }
+
+        $file = $request->file($input);
+
+        if (!$file || !$file->isValid()) {
+            continue;
+        }
+
+        $content = file_get_contents($file->getRealPath());
+
+        if (is_string($content) && $content !== '') {
+            $certificados[$jsonKey] = base64_encode($content);
+        }
+    }
+
+    foreach ([
+        'csd_password' => 'csd_password',
+        'fiel_password' => 'fiel_password',
+    ] as $input => $jsonKey) {
+        $value = trim((string) $request->input($input, ''));
+
+        if ($value !== '') {
+            $certificados[$jsonKey] = $value;
+        }
+    }
+
+    if (!empty($certificados)) {
+        $data['certificados_json'] = json_encode(
+            $certificados,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+    }
+
+    return $data;
+}
 
     private function buildPayload(array $data, bool $creating): array
     {

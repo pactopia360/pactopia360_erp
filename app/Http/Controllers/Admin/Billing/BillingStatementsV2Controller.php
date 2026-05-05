@@ -8,6 +8,7 @@ namespace App\Http\Controllers\Admin\Billing;
 use App\Http\Controllers\Admin\Billing\Concerns\HandlesStatementOverridesAndPeriods;
 use App\Http\Controllers\Controller;
 use App\Models\Admin\Billing\BillingStatement;
+use App\Models\Admin\Billing\BillingStatementItem;
 use App\Models\Cliente\CuentaCliente;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,12 +21,11 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
-use Illuminate\Validation\ValidationException;
-use Throwable;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
-use App\Models\Admin\Billing\BillingStatementItem;
-use App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller;
+use Throwable;
+
 
 final class BillingStatementsV2Controller extends Controller
 {
@@ -696,7 +696,9 @@ final class BillingStatementsV2Controller extends Controller
         ? (int) $cliente->admin_account_id
         : null;
 
-    $adminId = auth('admin')->id();
+    $rawAdminId = auth('admin')->id();
+    $adminId = is_numeric($rawAdminId) ? (int) $rawAdminId : null;
+    $adminMetaId = $rawAdminId !== null ? (string) $rawAdminId : null;
     $now = now();
 
     DB::connection('mysql_admin')->transaction(function () use (
@@ -2115,12 +2117,18 @@ HTML;
                 $meta = [];
             }
 
+            if (isset($extra['edited_by']) && !is_numeric($extra['edited_by'])) {
+                $extra['edited_by_uuid'] = (string) $extra['edited_by'];
+                $extra['edited_by'] = null;
+            }
+
             $meta['v2_payment_data'] = array_filter($extra, static fn ($value) => $value !== null && $value !== '');
             $payload['meta'] = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
 
         if (isset($columns['updated_by'])) {
-            $payload['updated_by'] = auth('admin')->id();
+            $rawAdminId = auth('admin')->id();
+            $payload['updated_by'] = is_numeric($rawAdminId) ? (int) $rawAdminId : null;
         }
 
         DB::connection($this->adm)->table($table)
@@ -2231,10 +2239,37 @@ HTML;
             }
         }
 
+                $planClave = strtoupper(trim((string) ($cliente->plan_actual ?? $cliente->plan ?? '')));
+        $modoCobro = strtolower(trim((string) ($cliente->modo_cobro ?? 'mensual')));
+
+        if ($planClave !== '' && Schema::connection($this->adm)->hasTable('planes')) {
+            $plan = DB::connection($this->adm)
+                ->table('planes')
+                ->whereRaw('UPPER(TRIM(clave)) = ?', [$planClave])
+                ->where(function ($query) {
+                    if (Schema::connection($this->adm)->hasColumn('planes', 'activo')) {
+                        $query->where('activo', 1);
+                    }
+                })
+                ->first();
+
+            if ($plan) {
+                $isAnnual = in_array($modoCobro, ['anual', 'annual', 'yearly'], true);
+
+                $amount = $isAnnual
+                    ? (float) ($plan->precio_anual ?? 0)
+                    : (float) ($plan->precio_mensual ?? 0);
+
+                if ($amount > 0.00001) {
+                    return round($amount, 2);
+                }
+            }
+        }
+
         return 0.0;
     }
 
-    private function generateCutoffRowsForPeriod(string $period, bool $force = false): array
+private function generateCutoffRowsForPeriod(string $period, bool $force = false): array
 {
     $periodDate = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
     $periodEnd = $periodDate->copy()->endOfMonth();
@@ -2272,12 +2307,7 @@ HTML;
             ->orderByDesc('id')
             ->first();
 
-        if ($existing && !$force) {
-            $skipped++;
-            continue;
-        }
-
-        if ($existing && !$force && (bool) ($existing->is_locked ?? false)) {
+        if ($existing && (bool) ($existing->is_locked ?? false) && !$force) {
             $skipped++;
             continue;
         }
@@ -2290,6 +2320,27 @@ HTML;
         $amount = round(max(0.0, $this->resolveCutoffAmountForCliente($cliente, $period)), 2);
         $status = $amount > 0.00001 ? 'pending' : 'sin_mov';
         $dueDate = $this->resolveDefaultStatementDueDate($period);
+
+        if ($existing && !$force) {
+            $existingCargo = round((float) ($existing->total_cargo ?? 0), 2);
+            $existingAbono = round((float) ($existing->total_abono ?? 0), 2);
+
+            $shouldRepairZeroCutoff = $existingCargo <= 0.00001 && $amount > 0.00001;
+            $shouldRepairMissingItem = $amount > 0.00001 && !BillingStatementItem::query()
+                ->where('statement_id', (int) $existing->id)
+                ->where('code', 'BASE_SERVICE')
+                ->exists();
+
+            if (!$shouldRepairZeroCutoff && !$shouldRepairMissingItem) {
+                $skipped++;
+                continue;
+            }
+
+            if ($existingAbono > 0.00001 || $existing->paid_at !== null) {
+                $skipped++;
+                continue;
+            }
+        }
 
         DB::connection($this->adm)->transaction(function () use (
             $existing,
@@ -2326,11 +2377,13 @@ HTML;
                     'license_type'     => $this->resolveLicenseLabel($cliente),
                     'period'           => $period,
                     'amount'           => $amount,
+                    'repair_zero_cutoff' => true,
                 ],
                 'meta' => [
                     'source'       => 'statements_v2_generate_cutoff',
                     'generated_at' => now()->toDateTimeString(),
                     'generated_by' => auth('admin')->id(),
+                    'repair_zero_cutoff' => true,
                 ],
                 'is_locked' => false,
             ];
@@ -2378,7 +2431,6 @@ HTML;
         'skipped' => $skipped,
     ];
 }
-
 
 private function billingBccEmail(): ?string
 {
@@ -2798,6 +2850,137 @@ public function generateInvoiceRequest(Request $request, string $accountId, stri
         'request_id' => $requestId,
         'account_id' => $accountId,
         'period' => $period,
+    ]);
+}
+
+public function saveBulkInvoiceProfiles(Request $request): JsonResponse
+{
+    if (!Schema::connection($this->adm)->hasTable('billing_invoice_profiles')) {
+        return response()->json([
+            'ok' => false,
+            'message' => 'No existe la tabla billing_invoice_profiles. Corre migraciones.',
+        ], 422);
+    }
+
+    $data = $request->validate([
+        'account_ids'             => ['required', 'array', 'min:1'],
+        'account_ids.*'           => ['required', 'string', 'max:80'],
+        'requires_invoice'        => ['nullable', 'boolean'],
+        'auto_generate_request'   => ['nullable', 'boolean'],
+        'auto_stamp'              => ['nullable', 'boolean'],
+        'auto_send'               => ['nullable', 'boolean'],
+        'schedule_day'            => ['nullable', 'integer', 'min:1', 'max:31'],
+        'schedule_time'           => ['nullable', 'string', 'max:8'],
+        'metodo_pago'             => ['nullable', 'string', 'max:10'],
+        'forma_pago'              => ['nullable', 'string', 'max:10'],
+        'uso_cfdi'                => ['nullable', 'string', 'max:10'],
+        'status'                  => ['nullable', 'string', 'in:active,inactive'],
+        'send_statement_pdf'      => ['nullable', 'boolean'],
+        'send_cfdi_pdf'           => ['nullable', 'boolean'],
+        'send_cfdi_xml'           => ['nullable', 'boolean'],
+        'send_pactopia_pdf'       => ['nullable', 'boolean'],
+        'notes'                   => ['nullable', 'string', 'max:5000'],
+    ]);
+
+    $accountIds = collect($data['account_ids'])
+        ->map(fn ($value) => trim((string) $value))
+        ->filter()
+        ->unique()
+        ->values();
+
+    $created = 0;
+    $updated = 0;
+    $skipped = 0;
+    $now = now();
+
+    $rawAdminId = auth('admin')->id();
+    $adminId = is_numeric($rawAdminId) ? (int) $rawAdminId : null;
+    $adminMetaId = $rawAdminId !== null ? (string) $rawAdminId : null;
+
+    foreach ($accountIds as $accountId) {
+        $cliente = $this->findClienteForStatementAccount((string) $accountId);
+
+        if (!$cliente instanceof CuentaCliente) {
+            $skipped++;
+            continue;
+        }
+
+        $resolvedAccountId = $this->resolvePrimaryStatementAccountIdForCliente($cliente);
+        if ($resolvedAccountId === '') {
+            $resolvedAccountId = (string) $accountId;
+        }
+
+        $owner = $cliente->owner;
+        $clientName = $this->resolveClientDisplayName($cliente, $owner);
+        $clientEmail = $this->resolveClientEmail($cliente, $owner);
+        $clientRfc = strtoupper(trim((string) ($cliente->rfc_padre ?? '')));
+
+        $existing = DB::connection($this->adm)
+            ->table('billing_invoice_profiles')
+            ->where('account_id', $resolvedAccountId)
+            ->first();
+
+        $payload = [
+            'account_id'            => $resolvedAccountId,
+            'admin_account_id'      => $cliente->admin_account_id !== null ? (int) $cliente->admin_account_id : null,
+            'client_uuid'           => (string) $cliente->id,
+            'requires_invoice'      => array_key_exists('requires_invoice', $data) ? ((bool) $data['requires_invoice'] ? 1 : 0) : 1,
+            'auto_generate_request' => array_key_exists('auto_generate_request', $data) ? ((bool) $data['auto_generate_request'] ? 1 : 0) : 1,
+            'auto_stamp'            => array_key_exists('auto_stamp', $data) ? ((bool) $data['auto_stamp'] ? 1 : 0) : 0,
+            'auto_send'             => array_key_exists('auto_send', $data) ? ((bool) $data['auto_send'] ? 1 : 0) : 0,
+            'invoice_mode'          => 'ppd_statement',
+            'tipo_comprobante'      => 'I',
+            'metodo_pago'           => strtoupper(trim((string) ($data['metodo_pago'] ?? 'PPD'))) ?: 'PPD',
+            'forma_pago'            => trim((string) ($data['forma_pago'] ?? '99')) ?: '99',
+            'uso_cfdi'              => trim((string) ($data['uso_cfdi'] ?? 'G03')) ?: 'G03',
+            'rfc'                   => $clientRfc !== '' ? $clientRfc : null,
+            'razon_social'          => $clientName !== '' ? $clientName : null,
+            'email'                 => $clientEmail !== '' ? $clientEmail : null,
+            'emails'                => $clientEmail !== ''
+                ? json_encode([$clientEmail], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : null,
+            'schedule_day'          => isset($data['schedule_day']) ? (int) $data['schedule_day'] : null,
+            'schedule_time'         => trim((string) ($data['schedule_time'] ?? '09:00')) ?: '09:00',
+            'send_statement_pdf'    => array_key_exists('send_statement_pdf', $data) ? ((bool) $data['send_statement_pdf'] ? 1 : 0) : 1,
+            'send_cfdi_pdf'         => array_key_exists('send_cfdi_pdf', $data) ? ((bool) $data['send_cfdi_pdf'] ? 1 : 0) : 1,
+            'send_cfdi_xml'         => array_key_exists('send_cfdi_xml', $data) ? ((bool) $data['send_cfdi_xml'] ? 1 : 0) : 1,
+            'send_pactopia_pdf'     => array_key_exists('send_pactopia_pdf', $data) ? ((bool) $data['send_pactopia_pdf'] ? 1 : 0) : 1,
+            'status'                => (string) ($data['status'] ?? 'active'),
+            'notes'                 => trim((string) ($data['notes'] ?? '')) ?: null,
+            'meta'                  => json_encode([
+                'source' => 'admin_statements_v2_bulk_invoice_profiles',
+                'updated_at' => $now->toDateTimeString(),
+                'updated_by' => $adminMetaId,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated_by_admin_id'   => $adminId,
+            'updated_at'            => $now,
+        ];
+
+        if ($existing) {
+            DB::connection($this->adm)
+                ->table('billing_invoice_profiles')
+                ->where('id', (int) $existing->id)
+                ->update($payload);
+
+            $updated++;
+        } else {
+            $payload['created_by_admin_id'] = $adminId;
+            $payload['created_at'] = $now;
+
+            DB::connection($this->adm)
+                ->table('billing_invoice_profiles')
+                ->insert($payload);
+
+            $created++;
+        }
+    }
+
+    return response()->json([
+        'ok' => true,
+        'created' => $created,
+        'updated' => $updated,
+        'skipped' => $skipped,
+        'message' => "Clientes PPD guardados. Creados: {$created}. Actualizados: {$updated}. Omitidos: {$skipped}.",
     ]);
 }
 

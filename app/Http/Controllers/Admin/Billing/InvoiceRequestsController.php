@@ -825,12 +825,24 @@ final class InvoiceRequestsController extends Controller
         $xmlPath = (string) ($invoice->xml_path ?? '');
         $xmlName = (string) ($invoice->xml_name ?? '');
 
-        $hasPdf  = $pdfPath !== '' && Storage::disk($pdfDisk)->exists($pdfPath);
-        $hasXml  = $xmlPath !== '' && Storage::disk($xmlDisk)->exists($xmlPath);
-        $statementPdf = $this->resolveStatementPdfAttachmentForInvoiceRequest($row);
+        $sendCfdiPdf = $this->shouldSendAttachment($row, 'send_cfdi_pdf', true);
+        $sendCfdiXml = $this->shouldSendAttachment($row, 'send_cfdi_xml', true);
+        $sendStatementPdf = $this->shouldSendAttachment($row, 'send_statement_pdf', true);
+        $sendPactopiaPdf = $this->shouldSendAttachment($row, 'send_pactopia_pdf', true);
+
+        $hasPdf = $sendCfdiPdf && $pdfPath !== '' && Storage::disk($pdfDisk)->exists($pdfPath);
+        $hasXml = $sendCfdiXml && $xmlPath !== '' && Storage::disk($xmlDisk)->exists($xmlPath);
+
+        $statementPdf = $sendStatementPdf
+            ? $this->resolveStatementPdfAttachmentForInvoiceRequest($row)
+            : null;
+
         $hasStatementPdf = $statementPdf !== null;
 
-        $pactopiaPdf = $this->resolvePactopiaPdfAttachmentForInvoice($invoice);
+        $pactopiaPdf = $sendPactopiaPdf
+            ? $this->resolvePactopiaPdfAttachmentForInvoice($invoice)
+            : null;
+
         $hasPactopiaPdf = $pactopiaPdf !== null;
 
         // Compat con vista existente
@@ -2719,6 +2731,31 @@ final class InvoiceRequestsController extends Controller
     return $billingData;
 }
 
+private function shouldSendAttachment(object $row, string $column, bool $default = true): bool
+{
+    if (!property_exists($row, $column)) {
+        return $default;
+    }
+
+    $value = $row->{$column};
+
+    if ($value === null || $value === '') {
+        return $default;
+    }
+
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    if (is_numeric($value)) {
+        return (int) $value === 1;
+    }
+
+    $text = strtolower(trim((string) $value));
+
+    return in_array($text, ['1', 'true', 'yes', 'si', 'sí', 'on'], true);
+}
+
 private function resolveStatementPdfAttachmentForInvoiceRequest(object $row): ?array
 {
     $accountId = trim((string) ($row->account_id ?? ''));
@@ -2729,45 +2766,33 @@ private function resolveStatementPdfAttachmentForInvoiceRequest(object $row): ?a
     }
 
     try {
-        if (Route::has('admin.billing.statements_v2.download')) {
-            $controller = app(BillingStatementsV2Controller::class);
-            $response = $controller->download($accountId, $period);
+        $controller = app(BillingStatementsController::class);
 
-            $content = method_exists($response, 'getContent')
-                ? (string) $response->getContent()
-                : '';
-
-            if ($content !== '') {
-                return [
-                    'name' => 'Estado_de_cuenta_' . $period . '_' . $accountId . '.pdf',
-                    'content' => $content,
-                ];
-            }
-        }
-
-        if (Route::has('admin.billing.statements.pdf')) {
-            $controller = app(BillingStatementsController::class);
-
-            $request = Request::create(
-                route('admin.billing.statements.pdf', [
+        $request = Request::create(
+            Route::has('admin.billing.statements.pdf')
+                ? route('admin.billing.statements.pdf', [
                     'accountId' => $accountId,
                     'period' => $period,
-                ]),
-                'GET'
-            );
+                ])
+                : '/admin/billing/statements/' . rawurlencode($accountId) . '/' . rawurlencode($period) . '/pdf',
+            'GET',
+            [
+                'inline' => 1,
+                'preview' => 1,
+            ]
+        );
 
-            $response = $controller->pdf($request, $accountId, $period);
+        $response = $controller->pdf($request, $accountId, $period);
 
-            $content = method_exists($response, 'getContent')
-                ? (string) $response->getContent()
-                : '';
+        $content = method_exists($response, 'getContent')
+            ? (string) $response->getContent()
+            : '';
 
-            if ($content !== '') {
-                return [
-                    'name' => 'Estado_de_cuenta_' . $period . '_' . $accountId . '.pdf',
-                    'content' => $content,
-                ];
-            }
+        if ($content !== '') {
+            return [
+                'name' => 'Estado_de_cuenta_' . $period . '_' . $accountId . '.pdf',
+                'content' => $content,
+            ];
         }
     } catch (Throwable $e) {
         Log::warning('[BILLING][INVOICE_REQ] statement pdf attachment failed', [

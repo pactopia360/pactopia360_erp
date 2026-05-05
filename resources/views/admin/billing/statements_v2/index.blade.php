@@ -46,6 +46,10 @@
     $routeBulkPayments = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.payments.bulk')
         ? route('admin.billing.statements_v2.payments.bulk')
         : '';
+    
+    $routeBulkInvoiceProfiles = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.invoice_profiles.bulk_save')
+        ? route('admin.billing.statements_v2.invoice_profiles.bulk_save')
+        : '';
 
     $routeGenerateCutoff = \Illuminate\Support\Facades\Route::has('admin.billing.statements_v2.generate_cutoff')
     ? route('admin.billing.statements_v2.generate_cutoff')
@@ -179,6 +183,7 @@
     data-bsv2-bulk-send-url="{{ $routeBulkSend }}"
     data-bsv2-advance-payments-url="{{ $routeAdvancePayments }}"
     data-bsv2-bulk-payments-url="{{ $routeBulkPayments }}"
+    data-bsv2-bulk-invoice-profiles-url="{{ $routeBulkInvoiceProfiles }}"
 >
     <div class="bsv2-wrap">
         <section class="bsv2-header-clean" aria-label="Encabezado de estados de cuenta">
@@ -509,6 +514,17 @@
                                         <svg viewBox="0 0 24 24" fill="none">
                                             <path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                             <path d="M18 16v5m-2.5-2.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                </button>
+
+                                <button type="button" class="bsv2-btn bsv2-btn--soft bsv2-btn--icon-only" id="bsv2-open-bulk-invoice-profiles-modal" data-floating-label="Clientes PPD" aria-label="Clientes PPD">
+                                    <span class="bsv2-btn__icon" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24" fill="none">
+                                            <path d="M6 3h9l3 3v15H6V3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            <path d="M15 3v4h4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                                            <path d="M8.5 12h7M8.5 16h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                                            <path d="M18.5 15.5v5M16 18h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                                         </svg>
                                     </span>
                                 </button>
@@ -1029,7 +1045,7 @@
                 </div>
          </section>
     </div>
-
+    
         {{-- MODAL · VISTA PREVIA --}}
     <div class="bsv2-modal" id="bsv2-preview-modal" aria-hidden="true">
         <div class="bsv2-modal__backdrop" data-bsv2-close-modal></div>
@@ -1636,6 +1652,157 @@
             </div>
         </div>
     </div>
+
+    {{-- MODAL · CLIENTES PPD MASIVO --}}
+                                                            <div class="bsv2-modal" id="bsv2-bulk-invoice-profiles-modal" aria-hidden="true">
+                                                                <div class="bsv2-modal__backdrop" data-bsv2-close-modal></div>
+
+                                                                <div class="bsv2-modal__dialog bsv2-modal__dialog--xl" role="dialog" aria-modal="true" aria-labelledby="bsv2-bulk-invoice-profiles-title">
+                                                                    <div class="bsv2-modal__head">
+                                                                        <div>
+                                                                            <h3 class="bsv2-modal__title" id="bsv2-bulk-invoice-profiles-title">Clientes especiales PPD</h3>
+                                                                            <p class="bsv2-modal__subtitle">
+                                                                                Selecciona clientes del listado visible y marca quiénes recibirán factura PPD junto con estado de cuenta.
+                                                                            </p>
+                                                                        </div>
+
+                                                                        <button type="button" class="bsv2-modal__close" data-bsv2-close-modal aria-label="Cerrar">
+                                                                            <svg viewBox="0 0 24 24" fill="none">
+                                                                                <path d="M6 6 18 18M18 6 6 18" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                                                                            </svg>
+                                                                        </button>
+                                                                    </div>
+
+                                                                    <div class="bsv2-modal__body">
+                                                                        <form id="bsv2-bulk-invoice-profiles-form" class="bsv2-form">
+                                                                            @csrf
+
+                                                                            <div class="bsv2-form__grid bsv2-form__grid--summary">
+                                                                                <div class="bsv2-summary-card">
+                                                                                    <span class="bsv2-summary-card__label">Clientes seleccionados</span>
+                                                                                    <strong class="bsv2-summary-card__value" id="bsv2-bulk-invoice-selected-count">0</strong>
+                                                                                </div>
+
+                                                                                <div class="bsv2-summary-card">
+                                                                                    <span class="bsv2-summary-card__label">Modo</span>
+                                                                                    <strong class="bsv2-summary-card__value">PPD + estado de cuenta</strong>
+                                                                                </div>
+
+                                                                                <div class="bsv2-summary-card">
+                                                                                    <span class="bsv2-summary-card__label">Período visible</span>
+                                                                                    <strong class="bsv2-summary-card__value">{{ $currentPeriod ?? now()->format('Y-m') }}</strong>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div id="bsv2-bulk-invoice-account-inputs"></div>
+
+                                                                            <div class="bsv2-email-preview-box">
+                                                                                <div class="bsv2-email-preview-box__title">Clientes incluidos</div>
+                                                                                <div class="bsv2-email-preview-box__text" id="bsv2-bulk-invoice-client-list">
+                                                                                    Selecciona clientes en la tabla y abre este modal.
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div class="bsv2-form__grid">
+                                                                                <div class="bsv2-field bsv2-field--full">
+                                                                                    <label class="bsv2-check bsv2-check--stack">
+                                                                                        <input type="checkbox" name="requires_invoice" value="1" checked>
+                                                                                        <span class="bsv2-check__box"></span>
+                                                                                        <div class="bsv2-check__content">
+                                                                                            <div class="bsv2-check__title">Requieren factura PPD</div>
+                                                                                            <div class="bsv2-check__text">Activa estos clientes como especiales para facturación con estado de cuenta.</div>
+                                                                                        </div>
+                                                                                    </label>
+                                                                                </div>
+
+                                                                                <div class="bsv2-field bsv2-field--full">
+                                                                                    <label class="bsv2-check bsv2-check--stack">
+                                                                                        <input type="checkbox" name="auto_generate_request" value="1" checked>
+                                                                                        <span class="bsv2-check__box"></span>
+                                                                                        <div class="bsv2-check__content">
+                                                                                            <div class="bsv2-check__title">Generar solicitud automáticamente</div>
+                                                                                            <div class="bsv2-check__text">El comando programado creará la solicitud PPD cuando corresponda.</div>
+                                                                                        </div>
+                                                                                    </label>
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Día programado</label>
+                                                                                    <input type="number" name="schedule_day" class="bsv2-control" min="1" max="31" value="{{ now()->day }}">
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Hora programada</label>
+                                                                                    <input type="time" name="schedule_time" class="bsv2-control" value="09:00">
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Método de pago</label>
+                                                                                    <select name="metodo_pago" class="bsv2-control">
+                                                                                        <option value="PPD" selected>PPD · Pago en parcialidades o diferido</option>
+                                                                                        <option value="PUE">PUE · Pago en una sola exhibición</option>
+                                                                                    </select>
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Forma de pago</label>
+                                                                                    <input type="text" name="forma_pago" class="bsv2-control" value="99" maxlength="10">
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Uso CFDI</label>
+                                                                                    <input type="text" name="uso_cfdi" class="bsv2-control" value="G03" maxlength="10">
+                                                                                </div>
+
+                                                                                <div class="bsv2-field">
+                                                                                    <label class="bsv2-label">Estatus</label>
+                                                                                    <select name="status" class="bsv2-control">
+                                                                                        <option value="active" selected>Activo</option>
+                                                                                        <option value="inactive">Inactivo</option>
+                                                                                    </select>
+                                                                                </div>
+
+                                                                                <div class="bsv2-field bsv2-field--full">
+                                                                                    <label class="bsv2-check bsv2-check--stack">
+                                                                                        <input type="checkbox" name="auto_stamp" value="1">
+                                                                                        <span class="bsv2-check__box"></span>
+                                                                                        <div class="bsv2-check__content">
+                                                                                            <div class="bsv2-check__title">Timbrar automáticamente</div>
+                                                                                            <div class="bsv2-check__text">Úsalo solo cuando el perfil fiscal del cliente esté completo.</div>
+                                                                                        </div>
+                                                                                    </label>
+                                                                                </div>
+
+                                                                                <div class="bsv2-field bsv2-field--full">
+                                                                                    <label class="bsv2-check bsv2-check--stack">
+                                                                                        <input type="checkbox" name="auto_send" value="1">
+                                                                                        <span class="bsv2-check__box"></span>
+                                                                                        <div class="bsv2-check__content">
+                                                                                            <div class="bsv2-check__title">Enviar automáticamente</div>
+                                                                                            <div class="bsv2-check__text">Después de timbrar, enviará CFDI, XML, estado de cuenta y PDF Pactopia.</div>
+                                                                                        </div>
+                                                                                    </label>
+                                                                                </div>
+
+                                                                                <input type="hidden" name="send_statement_pdf" value="1">
+                                                                                <input type="hidden" name="send_cfdi_pdf" value="1">
+                                                                                <input type="hidden" name="send_cfdi_xml" value="1">
+                                                                                <input type="hidden" name="send_pactopia_pdf" value="1">
+                                                                            </div>
+
+                                                                            <div class="bsv2-field">
+                                                                                <label class="bsv2-label">Notas internas</label>
+                                                                                <textarea name="notes" class="bsv2-control bsv2-control--textarea" rows="4" placeholder="Ej. Cliente exige factura PPD mensual con estado de cuenta."></textarea>
+                                                                            </div>
+
+                                                                            <div class="bsv2-form__actions">
+                                                                                <button type="button" class="bsv2-btn bsv2-btn--ghost" data-bsv2-close-modal>Cancelar</button>
+                                                                                <button type="submit" class="bsv2-btn bsv2-btn--primary">Guardar clientes PPD</button>
+                                                                            </div>
+                                                                        </form>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
 
         {{-- MODAL · PERFIL FISCAL PPD --}}
     <div class="bsv2-modal" id="bsv2-invoice-profile-modal" aria-hidden="true">

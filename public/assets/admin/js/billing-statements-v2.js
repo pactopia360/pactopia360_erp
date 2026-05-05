@@ -1296,7 +1296,39 @@
         }
     }
 
-    /* =========================================================
+    window.addEventListener('resize', repositionOpenDropdown);
+    window.addEventListener('scroll', repositionOpenDropdown, true);
+
+    setupAccordion('bsv2-kpis-toggle', 'bsv2-kpis-content', false);
+    setupAccordion('bsv2-filters-toggle', 'bsv2-filters-content', false);
+    setupAccordion('bsv2-list-toggle', 'bsv2-list-content', true);
+
+    resetPreviewModal();
+    resetEditModal();
+    resetEmailModal();
+    resetCommercialAgreementModal();
+    resetAdvanceModal();
+    resetBulkPaymentsModal();
+
+    bindSelection();
+    bindActionButtons();
+    bindMenuClicks();
+    bindModalOpeners();
+    bindModalClosers();
+    bindGlobalOutsideClick();
+    bindKeyboard();
+    bindResize();
+    bindFormStateRules();
+    bindCommercialAgreementStateRules();
+    bindSubmitProtection();
+    bindDynamicRows();
+    bindToolbarActions();
+
+    closeAllActionMenus();
+    updateSelectedCount();
+})();
+
+/* =========================================================
  * Pactopia360 · Statements V2 · Facturación PPD
  * ========================================================= */
 (function () {
@@ -1458,34 +1490,157 @@
     });
 })();
 
-    window.addEventListener('resize', repositionOpenDropdown);
-    window.addEventListener('scroll', repositionOpenDropdown, true);
 
-    setupAccordion('bsv2-kpis-toggle', 'bsv2-kpis-content', false);
-    setupAccordion('bsv2-filters-toggle', 'bsv2-filters-content', false);
-    setupAccordion('bsv2-list-toggle', 'bsv2-list-content', true);
+/* =========================================================
+ * Pactopia360 · Statements V2 · Clientes PPD masivo
+ * ========================================================= */
+(function () {
+    const root = document.querySelector('[data-bsv2-root]');
+    if (!root) return;
 
-    resetPreviewModal();
-    resetEditModal();
-    resetEmailModal();
-    resetCommercialAgreementModal();
-    resetAdvanceModal();
-    resetBulkPaymentsModal();
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 
-    bindSelection();
-    bindActionButtons();
-    bindMenuClicks();
-    bindModalOpeners();
-    bindModalClosers();
-    bindGlobalOutsideClick();
-    bindKeyboard();
-    bindResize();
-    bindFormStateRules();
-    bindCommercialAgreementStateRules();
-    bindSubmitProtection();
-    bindDynamicRows();
-    bindToolbarActions();
+    const bulkInvoiceUrl = root.dataset.bsv2BulkInvoiceProfilesUrl || '';
+    const openButton = document.getElementById('bsv2-open-bulk-invoice-profiles-modal');
+    const modal = document.getElementById('bsv2-bulk-invoice-profiles-modal');
+    const form = document.getElementById('bsv2-bulk-invoice-profiles-form');
+    const selectedCount = document.getElementById('bsv2-bulk-invoice-selected-count');
+    const accountInputs = document.getElementById('bsv2-bulk-invoice-account-inputs');
+    const clientList = document.getElementById('bsv2-bulk-invoice-client-list');
 
-    closeAllActionMenus();
-    updateSelectedCount();
+    const openModal = (target) => {
+        if (!target) return;
+        target.classList.add('is-open');
+        target.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('bsv2-modal-open');
+    };
+
+    const closeModal = (target) => {
+        if (!target) return;
+        target.classList.remove('is-open');
+        target.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('bsv2-modal-open');
+    };
+
+    const notify = (message) => {
+        alert(message);
+    };
+
+    const getSelectedRows = () => {
+        return Array.from(document.querySelectorAll('.bsv2-row-checkbox:checked'))
+            .map((checkbox) => {
+                return {
+                    accountId: checkbox.dataset.accountId || '',
+                    clientName: checkbox.dataset.clientName || '',
+                    email: checkbox.dataset.email || '',
+                };
+            })
+            .filter((row) => row.accountId !== '');
+    };
+
+    const hydrateBulkInvoiceModal = () => {
+        const rows = getSelectedRows();
+
+        if (selectedCount) {
+            selectedCount.textContent = String(rows.length);
+        }
+
+        if (accountInputs) {
+            accountInputs.innerHTML = '';
+
+            rows.forEach((row) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'account_ids[]';
+                input.value = row.accountId;
+                accountInputs.appendChild(input);
+            });
+        }
+
+        if (clientList) {
+            if (rows.length === 0) {
+                clientList.textContent = 'No hay clientes seleccionados.';
+                return;
+            }
+
+            clientList.innerHTML = rows
+                .map((row) => {
+                    const name = row.clientName || row.accountId;
+                    const email = row.email && row.email !== 'Sin correo' ? ` · ${row.email}` : '';
+                    return `<div>• ${name}${email}</div>`;
+                })
+                .join('');
+        }
+    };
+
+    if (openButton) {
+        openButton.addEventListener('click', () => {
+            const rows = getSelectedRows();
+
+            if (rows.length === 0) {
+                notify('Selecciona al menos un cliente en la tabla.');
+                return;
+            }
+
+            hydrateBulkInvoiceModal();
+            openModal(modal);
+        });
+    }
+
+    if (form) {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            if (!bulkInvoiceUrl) {
+                notify('No se encontró la ruta para guardar clientes PPD.');
+                return;
+            }
+
+            hydrateBulkInvoiceModal();
+
+            const rows = getSelectedRows();
+            if (rows.length === 0) {
+                notify('Selecciona al menos un cliente.');
+                return;
+            }
+
+            const submitButton = form.querySelector('button[type="submit"]');
+            const originalText = submitButton ? submitButton.textContent : '';
+
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Guardando...';
+            }
+
+            try {
+                const formData = new FormData(form);
+
+                const response = await fetch(bulkInvoiceUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': csrf,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    body: formData,
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok || data.ok !== true) {
+                    throw new Error(data.message || 'No se pudieron guardar los clientes PPD.');
+                }
+
+                closeModal(modal);
+                notify(data.message || 'Clientes PPD guardados correctamente.');
+            } catch (error) {
+                notify(error.message || 'Error al guardar clientes PPD.');
+            } finally {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = originalText;
+                }
+            }
+        });
+    }
 })();

@@ -887,6 +887,13 @@ Route::middleware([
                 ->middleware($thrAdminPosts)
                 ->name('payments.bulk');
 
+            $statementsV2BulkInvoiceProfiles = Route::post(
+                'invoice-profiles/bulk',
+                [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'saveBulkInvoiceProfiles']
+            )
+                ->middleware($thrAdminPosts)
+                ->name('invoice_profiles.bulk_save');
+
             $statementsV2CommercialAgreement = Route::post(
                 '{accountId}/commercial-agreement',
                 [\App\Http\Controllers\Admin\Billing\BillingStatementsV2Controller::class, 'saveCommercialAgreement']
@@ -966,6 +973,7 @@ Route::middleware([
                     $statementsV2GenerateCutoff,
                     $statementsV2InvoiceProfile,
                     $statementsV2InvoiceRequest,
+                    $statementsV2BulkInvoiceProfiles,
                 ] as $rt) {
                     $rt->withoutMiddleware([AppCsrf::class, FrameworkCsrf::class]);
                 }

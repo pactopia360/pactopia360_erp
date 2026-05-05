@@ -495,9 +495,12 @@
       <a href="{{ route('admin.billing.invoicing.settings.index') }}" class="be-btn">Configuración</a>
       <a href="{{ route('admin.billing.invoicing.emisores.create') }}" class="be-btn be-btn-primary">Nuevo emisor</a>
 
-      <span class="be-btn be-btn-success" style="cursor:default;pointer-events:none;opacity:.92;">
-        Sincronización automática activa
-      </span>
+      <form method="POST" action="{{ route('admin.billing.invoicing.emisores.sync_facturotopia') }}" style="display:inline-flex;margin:0;">
+      @csrf
+      <button type="submit" class="be-btn be-btn-success">
+        Sincronizar Facturotopía
+      </button>
+    </form>
     </div>
   </section>
 
